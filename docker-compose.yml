@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:16
+    container_name: finanzapp-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: finanzapp
+      POSTGRES_PASSWORD: finanzapp_dev
+      POSTGRES_DB: finanzapp
+    ports:
+      - "5433:5432"   # 5433 en el host para no chocar con un Postgres local o de otro proyecto en 5432
+    volumes:
+      - finanzapp_pgdata:/var/lib/postgresql/data
+
+volumes:
+  finanzapp_pgdata:
