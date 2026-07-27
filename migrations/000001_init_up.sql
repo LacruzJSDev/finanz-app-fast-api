@@ -9,6 +9,13 @@
 -- cuelga de un grupo, nunca directamente de un usuario. Esto es
 -- lo que permite que varios usuarios vean y editen las mismas
 -- cuentas sin duplicar datos.
+--
+-- Autenticación: identidad (users) y método de autenticación
+-- (auth_providers) están separados a propósito. Un usuario puede
+-- registrarse con Google y más tarde añadir contraseña como
+-- método alternativo, o viceversa — por eso la contraseña NO
+-- vive en users, vive en auth_providers junto al resto de
+-- métodos de login.
 -- =============================================================
 
 -- =============================================================
@@ -29,17 +36,22 @@ CREATE TYPE frequency_unit_enum AS ENUM ('day', 'week', 'month', 'year');
 
 CREATE TYPE account_type_enum AS ENUM ('cash', 'bank', 'credit_card', 'savings', 'investment', 'other');
 
+-- Método de autenticación vinculado a un usuario. 'local' significa
+-- login con email+contraseña gestionado por nosotros; cualquier
+-- otro valor es un proveedor OAuth externo (Google verifica la
+-- identidad, nosotros solo confiamos en su token).
+CREATE TYPE auth_provider_enum AS ENUM ('local', 'google');
+
 
 -- =============================================================
 -- USERS
 -- Identidad de cada persona que usa la aplicación. Independiente
--- de a cuántos grupos pertenezca.
+-- de a cuántos grupos pertenezca y de cómo se autentique 
 -- =============================================================
 
 CREATE TABLE users (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email         VARCHAR(255) NOT NULL UNIQUE,
-    password      VARCHAR(255) NOT NULL,
     name          VARCHAR(100) NOT NULL,
     created_at    TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at    TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
@@ -49,21 +61,55 @@ CREATE INDEX idx_users_email ON users (email);
 
 
 -- =============================================================
+-- AUTH PROVIDERS
+-- Métodos de autenticación vinculados a un usuario. Un usuario
+-- puede tener varios (ej. registrarse con Google y más tarde
+-- añadir contraseña como método alternativo). password_hash solo
+-- se rellena cuando provider = 'local'; provider_user_id (el
+-- "sub" que manda el proveedor externo) solo cuando no lo es.
+-- El CHECK impone esta exclusividad a nivel de base de datos, no
+-- solo en el código de la aplicación.
+-- =============================================================
+
+CREATE TABLE auth_providers (
+    id                UUID                PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id           UUID                NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    provider          auth_provider_enum  NOT NULL,
+    provider_user_id  VARCHAR(255),
+    password_hash     VARCHAR(255),
+    created_at        TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT chk_provider_fields CHECK (
+        (provider = 'local'  AND password_hash IS NOT NULL AND provider_user_id IS NULL) OR
+        (provider <> 'local' AND provider_user_id IS NOT NULL AND password_hash IS NULL)
+    ),
+    CONSTRAINT uq_provider_identity UNIQUE (provider, provider_user_id)
+);
+
+CREATE INDEX idx_auth_providers_user_id ON auth_providers (user_id);
+
+
+-- =============================================================
 -- SESSIONS
 -- Sesiones de autenticación activas por usuario. Se revocan
 -- explícitamente (revoked = true) en vez de borrarse, para
--- mantener trazabilidad de accesos.
+-- mantener trazabilidad de accesos. refresh_token_hash guarda el
+-- hash (ej. SHA-256) del refresh token, nunca el token en texto
+-- plano — si alguien accede a la base de datos, no puede robar
+-- sesiones activas directamente de una columna legible.
 -- =============================================================
 
 CREATE TABLE sessions (
-    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id    UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    revoked    BOOLEAN NOT NULL DEFAULT FALSE,
-    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id             UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    refresh_token_hash  VARCHAR(255) NOT NULL,
+    revoked             BOOLEAN NOT NULL DEFAULT FALSE,
+    expires_at          TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_at          TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_sessions_user_id ON sessions (user_id);
+CREATE UNIQUE INDEX idx_sessions_refresh_token_hash ON sessions (refresh_token_hash);
 
 
 -- =============================================================
