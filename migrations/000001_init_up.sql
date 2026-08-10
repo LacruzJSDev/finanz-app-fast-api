@@ -46,7 +46,8 @@ CREATE TYPE auth_provider_enum AS ENUM ('local', 'google');
 -- =============================================================
 -- USERS
 -- Identidad de cada persona que usa la aplicación. Independiente
--- de a cuántos grupos pertenezca y de cómo se autentique 
+-- de a cuántos grupos pertenezca y de cómo se autentique — por
+-- eso ya NO tiene columna password (ver auth_providers).
 -- =============================================================
 
 CREATE TABLE users (
@@ -87,6 +88,16 @@ CREATE TABLE auth_providers (
 );
 
 CREATE INDEX idx_auth_providers_user_id ON auth_providers (user_id);
+
+-- uq_provider_identity NO basta para impedir que un mismo usuario
+-- tenga dos filas 'local': provider_user_id es siempre NULL en esas
+-- filas, y Postgres no considera que dos NULL "choquen" en un UNIQUE.
+-- Este índice parcial cierra ese hueco: como mucho una fila 'local'
+-- por usuario (no tiene sentido tener dos contraseñas para el mismo
+-- usuario).
+CREATE UNIQUE INDEX uq_auth_providers_local_per_user
+    ON auth_providers (user_id)
+    WHERE provider = 'local';
 
 
 -- =============================================================
@@ -437,21 +448,46 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- INSERT aplica el efecto; DELETE lo revierte; UPDATE revierte el
--- efecto de la fila anterior y aplica el de la nueva (cubre tanto
--- un cambio de importe como un cambio de cuenta).
+-- INSERT aplica el efecto (salvo que nazca ya borrada, caso atípico
+-- pero cubierto por seguridad); DELETE físico lo revierte solo si la
+-- fila estaba activa (si ya estaba borrada lógicamente, su efecto ya
+-- se revirtió en ese momento, y revertirlo otra vez descuadraría el
+-- balance). UPDATE distingue explícitamente cuatro casos según cómo
+-- cambia deleted_at, porque el borrado lógico (poner deleted_at) y la
+-- restauración (quitarlo) también deben mover el balance, no solo los
+-- cambios de importe/cuenta con la fila siempre activa.
 CREATE OR REPLACE FUNCTION trg_transactions_balance()
 RETURNS TRIGGER AS $$
 BEGIN
     IF TG_OP = 'INSERT' THEN
-        PERFORM apply_transaction_effect(NEW.account_id, NEW.to_account_id, NEW.amount, NEW.type, 1);
+        IF NEW.deleted_at IS NULL THEN
+            PERFORM apply_transaction_effect(NEW.account_id, NEW.to_account_id, NEW.amount, NEW.type, 1);
+        END IF;
         RETURN NEW;
+
     ELSIF TG_OP = 'DELETE' THEN
-        PERFORM apply_transaction_effect(OLD.account_id, OLD.to_account_id, OLD.amount, OLD.type, -1);
+        IF OLD.deleted_at IS NULL THEN
+            PERFORM apply_transaction_effect(OLD.account_id, OLD.to_account_id, OLD.amount, OLD.type, -1);
+        END IF;
         RETURN OLD;
+
     ELSIF TG_OP = 'UPDATE' THEN
-        PERFORM apply_transaction_effect(OLD.account_id, OLD.to_account_id, OLD.amount, OLD.type, -1);
-        PERFORM apply_transaction_effect(NEW.account_id, NEW.to_account_id, NEW.amount, NEW.type, 1);
+        IF OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL THEN
+            -- Borrado lógico: revierte el efecto, no lo vuelve a aplicar.
+            PERFORM apply_transaction_effect(OLD.account_id, OLD.to_account_id, OLD.amount, OLD.type, -1);
+
+        ELSIF OLD.deleted_at IS NOT NULL AND NEW.deleted_at IS NULL THEN
+            -- Restauración: aplica el efecto de la fila ya restaurada.
+            PERFORM apply_transaction_effect(NEW.account_id, NEW.to_account_id, NEW.amount, NEW.type, 1);
+
+        ELSIF OLD.deleted_at IS NULL AND NEW.deleted_at IS NULL THEN
+            -- Sigue activa: cambio normal de importe, tipo o cuenta.
+            PERFORM apply_transaction_effect(OLD.account_id, OLD.to_account_id, OLD.amount, OLD.type, -1);
+            PERFORM apply_transaction_effect(NEW.account_id, NEW.to_account_id, NEW.amount, NEW.type, 1);
+
+        END IF;
+        -- Si sigue borrada (edición de metadatos de una fila ya
+        -- borrada), no se toca el balance: no estaba contribuyendo a él.
         RETURN NEW;
     END IF;
     RETURN NULL;
