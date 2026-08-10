@@ -1,16 +1,60 @@
+# Configuración base = PRODUCCIÓN.
+#
+# `docker compose up` carga automáticamente docker-compose.override.yml encima
+# de este fichero, así que el comando corto SIEMPRE es desarrollo. Para
+# producción hay que pedir explícitamente solo este fichero:
+#
+#   desarrollo:  docker compose up
+#   producción:  docker compose -f docker-compose.yml up -d
 services:
   db:
     image: postgres:16
     container_name: finanzapp-db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: finanzapp
-      POSTGRES_PASSWORD: finanzapp_dev
-      POSTGRES_DB: finanzapp
-    ports:
-      - "5433:5432" # 5433 en el host para no chocar con un Postgres local o de otro proyecto en 5432
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - finanzapp_pgdata:/var/lib/postgresql/data
+    # Sin `ports`: en producción la base solo es accesible desde la red interna
+    # de Docker, nunca desde fuera del host. El override la publica en
+    # desarrollo, que es donde sí interesa conectarse con un cliente SQL.
+    healthcheck:
+      # -d comprueba que la base concreta ya existe. Sin él, pg_isready puede
+      # dar "sano" durante la inicialización, antes de que POSTGRES_DB esté
+      # creada, y la api arrancaría contra una base inexistente.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    container_name: finanzapp-api
+    restart: unless-stopped
+    # Todas las variables de Settings (SECRET_KEY, GOOGLE_*, CORS_*...) entran
+    # por aquí, en tiempo de ejecución. El .env NO está dentro de la imagen:
+    # .dockerignore lo excluye a propósito.
+    env_file: .env
+    environment:
+      # Sobrescribe el DATABASE_URL del .env, que apunta a localhost para uso
+      # desde el venv del host. Entre contenedores, el host de la base es el
+      # nombre del servicio (`db`) y el puerto es el interno (5432).
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      ENVIRONMENT: production
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      # La imagen es python:3.13-slim y no trae curl, así que se usa urllib.
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
 volumes:
   finanzapp_pgdata:

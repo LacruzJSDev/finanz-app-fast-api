@@ -1,0 +1,31 @@
+# Secretos: nunca deben acabar dentro de una capa de la imagen.
+.env
+.env.*
+!.env.example
+
+# Entorno virtual local: se instalan las dependencias dentro de la imagen.
+venv/
+.venv/
+
+# Historial y metadatos que la imagen no necesita.
+.git/
+.gitignore
+.github/
+.vscode/
+
+# Artefactos de Python.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Documentación y utilidades de desarrollo.
+docs/
+README.md
+requests.http
+requirements-dev.txt
+docker-compose*.yml
+
+# Basura del sistema.
+.DS_Store

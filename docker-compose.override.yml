@@ -1,0 +1,24 @@
+# Ajustes de DESARROLLO. Docker Compose lo aplica encima de
+# docker-compose.yml automáticamente al ejecutar `docker compose up`.
+services:
+  db:
+    # Publica la base en el host para poder conectarse con un cliente SQL o
+    # ejecutar alembic desde el venv local. 5433 en vez de 5432 para no chocar
+    # con un Postgres instalado directamente en la máquina.
+    ports:
+      - "5433:5432"
+
+  api:
+    # Monta el código del host dentro del contenedor: al guardar un fichero,
+    # --reload reinicia uvicorn sin necesidad de reconstruir la imagen.
+    volumes:
+      - .:/code
+    environment:
+      ENVIRONMENT: development
+      # En macOS y Windows los eventos del sistema de ficheros no cruzan bien
+      # el límite del bind mount; el sondeo periódico es menos eficiente pero
+      # sí detecta los cambios.
+      WATCHFILES_FORCE_POLLING: "true"
+    # Solo el comando del servidor: las migraciones las sigue aplicando el
+    # ENTRYPOINT del Dockerfile, que se ejecuta antes que esto.
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
