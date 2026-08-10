@@ -1,5 +1,14 @@
 venv/
+.venv/
 __pycache__/
 *.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Secretos: solo se versiona .env.example
 .env
+.env.*
+!.env.example
+
 .DS_Store
