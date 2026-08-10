@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: finanzapp_dev
       POSTGRES_DB: finanzapp
     ports:
-      - "5433:5432"   # 5433 en el host para no chocar con un Postgres local o de otro proyecto en 5432
+      - "5433:5432" # 5433 en el host para no chocar con un Postgres local o de otro proyecto en 5432
     volumes:
       - finanzapp_pgdata:/var/lib/postgresql/data
 
