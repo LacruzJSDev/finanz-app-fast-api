@@ -1,0 +1,11 @@
+# Dependencias solo de desarrollo. La imagen de Docker instala únicamente
+# requirements.txt, así que nada de esto viaja a producción.
+#
+#   pip install -r requirements-dev.txt
+-r requirements.txt
+
+pytest==9.1.1
+iniconfig==2.3.0
+pluggy==1.6.0
+Pygments==2.20.0
+ruff==0.16.2
