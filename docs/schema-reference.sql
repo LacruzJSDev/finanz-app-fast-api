@@ -1,5 +1,34 @@
 -- =============================================================
--- FinanzApp — Esquema inicial de base de datos
+-- FinanzApp — Esquema de referencia (DOCUMENTACIÓN)
+-- =============================================================
+--
+--   ⚠️  ESTE FICHERO NO SE EJECUTA NUNCA.
+--
+-- Es el diseño de referencia del modelo de datos completo, escrito
+-- antes de empezar a implementar. La fuente de verdad del esquema
+-- real son las migraciones de Alembic (alembic/versions/), que se
+-- aplican solas al arrancar el contenedor.
+--
+-- Cada vez que se implementa un dominio, sus tablas se traducen de
+-- aquí a una migración de Alembic. Los triggers y funciones se
+-- portan con op.execute() dentro de la migración.
+--
+-- Si al traducir una tabla se descubre que el diseño de aquí estaba
+-- mal, se corrige ESTE fichero también: es documentación viva, no un
+-- histórico congelado.
+--
+-- Estado de la traducción a Alembic:
+--   [x] users
+--   [ ] auth_providers
+--   [ ] sessions
+--   [ ] account_groups
+--   [ ] account_group_members
+--   [ ] invitations
+--   [ ] accounts
+--   [ ] categories
+--   [ ] payment_plans
+--   [ ] transactions
+--
 -- =============================================================
 -- Aplicación de finanzas personales multiusuario. El dominio se
 -- organiza alrededor de "grupos de cuentas" (account_groups): un
@@ -44,6 +73,24 @@ CREATE TYPE auth_provider_enum AS ENUM ('local', 'google');
 
 
 -- =============================================================
+-- FUNCIONES COMUNES
+-- =============================================================
+
+-- Mantiene updated_at al día en cada UPDATE. server_default = NOW()
+-- solo actúa en el INSERT, así que sin este trigger la columna se
+-- quedaría congelada en la fecha de creación. La función es genérica:
+-- toda tabla con columna updated_at cuelga de ella su propio trigger
+-- (ver la línea CREATE TRIGGER al final de cada tabla).
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at := NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+
+-- =============================================================
 -- USERS
 -- Identidad de cada persona que usa la aplicación. Independiente
 -- de a cuántos grupos pertenezca y de cómo se autentique — por
@@ -59,6 +106,11 @@ CREATE TABLE users (
 );
 
 CREATE INDEX idx_users_email ON users (email);
+
+CREATE TRIGGER trg_users_set_updated_at
+    BEFORE UPDATE ON users
+    FOR EACH ROW
+    EXECUTE FUNCTION set_updated_at();
 
 
 -- =============================================================
@@ -140,6 +192,11 @@ CREATE TABLE account_groups (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
+
+CREATE TRIGGER trg_account_groups_set_updated_at
+    BEFORE UPDATE ON account_groups
+    FOR EACH ROW
+    EXECUTE FUNCTION set_updated_at();
 
 
 -- =============================================================
@@ -228,6 +285,11 @@ CREATE TABLE accounts (
 
 CREATE INDEX idx_accounts_group_id ON accounts (group_id);
 
+CREATE TRIGGER trg_accounts_set_updated_at
+    BEFORE UPDATE ON accounts
+    FOR EACH ROW
+    EXECUTE FUNCTION set_updated_at();
+
 -- Invariante: balance siempre nace igual a opening_balance. A
 -- partir de ahí, solo lo tocan los triggers de transactions.
 CREATE OR REPLACE FUNCTION init_account_balance()
@@ -274,6 +336,11 @@ CREATE TABLE categories (
 
 CREATE INDEX idx_categories_group_id  ON categories (group_id);
 CREATE INDEX idx_categories_parent_id ON categories (parent_id);
+
+CREATE TRIGGER trg_categories_set_updated_at
+    BEFORE UPDATE ON categories
+    FOR EACH ROW
+    EXECUTE FUNCTION set_updated_at();
 
 -- Invariante: máximo dos niveles de profundidad, y una categoría
 -- no puede ser su propia categoría padre.
@@ -343,6 +410,11 @@ CREATE TABLE payment_plans (
 
 CREATE INDEX idx_payment_plans_account_id    ON payment_plans (account_id);
 CREATE INDEX idx_payment_plans_next_due_date ON payment_plans (next_due_date) WHERE is_active = TRUE;
+
+CREATE TRIGGER trg_payment_plans_set_updated_at
+    BEFORE UPDATE ON payment_plans
+    FOR EACH ROW
+    EXECUTE FUNCTION set_updated_at();
 
 CREATE OR REPLACE FUNCTION check_payment_plan_category_group()
 RETURNS TRIGGER AS $$
@@ -430,6 +502,11 @@ CREATE INDEX idx_transactions_account_id      ON transactions (account_id);
 CREATE INDEX idx_transactions_date            ON transactions (date);
 CREATE INDEX idx_transactions_payment_plan_id ON transactions (payment_plan_id);
 CREATE INDEX idx_transactions_type            ON transactions (type);
+
+CREATE TRIGGER trg_transactions_set_updated_at
+    BEFORE UPDATE ON transactions
+    FOR EACH ROW
+    EXECUTE FUNCTION set_updated_at();
 
 -- Aplica el efecto de una transacción (o su reverso) sobre el
 -- balance de las cuentas implicadas. p_sign vale +1 al aplicar
