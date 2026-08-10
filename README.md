@@ -1,6 +1,128 @@
-## Setup
-1. `python3 -m venv venv && source venv/bin/activate`
-2. `pip install -r requirements.txt`
-3. `cp .env.example .env`
-4. `docker compose up -d`
-5. `uvicorn app.main:app --reload`
+# FinanzApp — API
+
+Backend de una aplicación de finanzas personales multiusuario. FastAPI +
+PostgreSQL + Alembic, todo sobre Docker.
+
+Las decisiones de arquitectura están en [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md);
+el diseño del modelo de datos, en [`docs/schema-reference.sql`](docs/schema-reference.sql);
+las convenciones de commits y ramas, en [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md).
+
+---
+
+## Puesta en marcha
+
+```bash
+cp .env.example .env
+```
+
+Edita `.env` y pon al menos `POSTGRES_PASSWORD`, un `DATABASE_URL` coherente
+con esa contraseña y un `SECRET_KEY`. Para generar la clave:
+
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+Y arranca:
+
+```bash
+docker compose up --build
+```
+
+Eso levanta Postgres, espera a que esté sano, aplica las migraciones
+pendientes y arranca la API con recarga automática.
+
+- API: http://localhost:8000
+- Documentación interactiva: http://localhost:8000/docs
+- Health check: http://localhost:8000/health
+- Postgres (desde el host): `localhost:5433`
+
+---
+
+## Desarrollo vs producción
+
+Docker Compose carga `docker-compose.override.yml` encima de
+`docker-compose.yml` **de forma automática**. Es el detalle menos evidente de
+todo el montaje:
+
+| | Comando | Qué cambia |
+|---|---|---|
+| **Desarrollo** | `docker compose up` | Código montado desde el host, `--reload`, Postgres publicado en 5433 |
+| **Producción** | `docker compose -f docker-compose.yml up -d` | Sin bind mount ni reload; la base no se publica fuera de la red de Docker |
+
+Pasar `-f docker-compose.yml` es lo que desactiva el override. Sin ese flag
+siempre estás en desarrollo, aunque `ENVIRONMENT` diga otra cosa.
+
+`.env` nunca entra en la imagen (`.dockerignore` lo excluye): las variables se
+inyectan en tiempo de ejecución vía `env_file`. En un despliegue real, `.env`
+vive en el servidor, no en el repositorio.
+
+---
+
+## Entorno local (fuera de Docker)
+
+Hace falta para generar migraciones y ejecutar los tests. La base de datos
+sigue siendo la del contenedor — por eso el `DATABASE_URL` de `.env` apunta a
+`localhost:5433`.
+
+```bash
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements-dev.txt
+```
+
+---
+
+## Migraciones
+
+**Se generan desde el host** (necesitan escribir ficheros nuevos) y **se
+aplican solas dentro del contenedor** (el `entrypoint.sh` ejecuta
+`alembic upgrade head` en cada arranque).
+
+Después de crear o modificar un modelo, hay que registrarlo en
+[`app/db_registry.py`](app/db_registry.py) — si no, Alembic no lo ve y
+propondrá borrar sus tablas. Luego:
+
+```bash
+alembic revision --autogenerate -m "descripcion del cambio"
+```
+
+Revisa siempre el fichero generado antes de aplicarlo: el autogenerate no
+detecta renombrados (los interpreta como borrar + crear, con pérdida de datos)
+ni nada que no esté expresado en los modelos, como triggers o índices
+parciales. Eso se añade a mano con `op.execute()`.
+
+Para aplicarlas basta con reiniciar la API:
+
+```bash
+docker compose restart api
+```
+
+Otros comandos útiles:
+
+```bash
+alembic current
+alembic history --verbose
+alembic downgrade -1
+```
+
+---
+
+## Tests
+
+```bash
+pytest
+```
+
+---
+
+## Estructura
+
+```
+alembic/versions/    Migraciones — la fuente de verdad del esquema
+app/config.py        Settings leídas del entorno al arrancar
+app/database.py      Engine, SessionLocal, Base y la dependencia get_db
+app/db_registry.py   Importa todos los modelos para que Alembic los vea
+app/main.py          Instancia de FastAPI
+app/<dominio>/       Un paquete por dominio: router, service, repository,
+                     models, schemas
+docs/                Arquitectura y diseño del modelo de datos
+```

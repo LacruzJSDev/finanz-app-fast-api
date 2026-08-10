@@ -1,0 +1,24 @@
+# <tipo>(<ámbito>): <asunto en imperativo, minúscula, sin punto, <=50>
+# |<---- usa un máximo de 50 caracteres ---->|
+
+
+# Cuerpo: el PORQUÉ, no el qué. Ajustar a 72 columnas.
+# |<---- usa un máximo de 72 caracteres ---------------------------->|
+
+
+# Pie: BREAKING CHANGE: ... / Refs: ...
+
+# --- Chuleta ------------------------------------------------------------
+# feat     funcionalidad nueva          build    docker, requirements
+# fix      corrección de un fallo       ci       integración continua
+# docs     solo documentación           chore    mantenimiento
+# refactor sin cambio de comportamiento perf     rendimiento
+# test     pruebas
+#
+# ámbitos: users auth accounts account-groups categories transactions
+#          payment-plans db api config docker deps
+#
+# Un commit = un cambio lógico completo, y el proyecto sigue funcionando.
+# Modelo nuevo y su migración de Alembic van juntos en el mismo commit.
+#
+# Detalle completo en docs/CONTRIBUTING.md
