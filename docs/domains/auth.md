@@ -26,7 +26,7 @@ Registro con credenciales locales.
 
 - **Entrada**: `email`, `password`, `name`.
 - **Efecto**: crea `User` y una fila `auth_providers` (`provider = 'local'`, `password_hash` con hash de la contraseña).
-- **Salida**: `access_token`, `refresh_token` — el registro autentica inmediatamente, sin exigir un login posterior.
+- **Salida**: el `User` creado, en el cuerpo. `access_token` y `refresh_token` se entregan como cookies httpOnly, no como campos del JSON (ver sección 5) — el registro autentica inmediatamente, sin exigir un login posterior.
 - **Errores**: `409` si el email ya existe.
 
 ### `POST /api/v1/auth/login`
@@ -35,7 +35,7 @@ Inicio de sesión con credenciales locales.
 
 - **Entrada**: `email`, `password`.
 - **Efecto**: valida contra la fila `auth_providers` de tipo `local` del usuario con ese email. Crea una fila en `sessions` con el hash del refresh token emitido.
-- **Salida**: `access_token`, `refresh_token`.
+- **Salida**: el `User` autenticado, en el cuerpo. `access_token` y `refresh_token` como cookies httpOnly (ver sección 5).
 - **Errores**: `401` si el email no existe o la contraseña no coincide (mismo código y mismo mensaje genérico en ambos casos, para no confirmar qué emails están registrados).
 
 ### `POST /api/v1/auth/google`
@@ -49,25 +49,25 @@ Inicio de sesión o registro mediante Google.
   3. Si no existe esa fila, pero el email ya pertenece a un `User` existente (por ejemplo, registrado antes con `local`) → vincula la nueva fila `auth_providers` a ese usuario.
   4. Si el email no existe en absoluto → crea `User` y la fila `auth_providers` en la misma operación.
   5. Crea sesión, igual que en `login`.
-- **Salida**: `access_token`, `refresh_token`.
+- **Salida**: el `User`, en el cuerpo. `access_token` y `refresh_token` como cookies httpOnly (ver sección 5).
 - **Errores**: `401` si el token de Google no es válido o no se puede verificar.
 
 ### `POST /api/v1/auth/refresh`
 
 Renovación del token de acceso.
 
-- **Entrada**: `refresh_token`.
+- **Entrada**: ninguna en el cuerpo — el `refresh_token` se lee de su cookie (ver sección 5), no se manda explícitamente.
 - **Efecto**: valida el hash contra `sessions.refresh_token_hash`, comprueba que la sesión no esté revocada ni expirada. Emite un nuevo `access_token`. El `refresh_token` se rota (se invalida el usado y se emite uno nuevo), para reducir la ventana de uso de un token filtrado.
-- **Salida**: `access_token`, `refresh_token` (nuevo).
+- **Salida**: `204 No Content`. Las dos cookies se reemiten con los valores nuevos (ver sección 5).
 - **Errores**: `401` si el refresh token no es válido, está revocado o expirado.
 
 ### `POST /api/v1/auth/logout`
 
 Cierre de sesión.
 
-- **Entrada**: `refresh_token` de la sesión a cerrar.
+- **Entrada**: ninguna en el cuerpo — el `refresh_token` de la sesión a cerrar se lee de su cookie.
 - **Efecto**: marca la fila correspondiente de `sessions` como `revoked = true`. No afecta a otras sesiones activas del mismo usuario en otros dispositivos.
-- **Salida**: `204 No Content`.
+- **Salida**: `204 No Content`. Borra las dos cookies (ver sección 5).
 
 ### `PATCH /api/v1/auth/password`
 
@@ -75,17 +75,40 @@ Cambio de contraseña, requiere autenticación.
 
 - **Entrada**: `current_password`, `new_password`.
 - **Efecto**: valida la contraseña actual contra la fila `local` existente, actualiza `password_hash`.
-- **Errores**: `401` si `current_password` no coincide. `404`/`409` si el usuario no tiene un método `local` configurado (por ejemplo, se registró solo con Google) — en ese caso este endpoint no aplica; se necesitaría un flujo de "añadir contraseña", fuera de alcance de v1 (ver sección 6).
+- **Errores**: `401` si `current_password` no coincide. `404`/`409` si el usuario no tiene un método `local` configurado (por ejemplo, se registró solo con Google) — en ese caso este endpoint no aplica; se necesitaría un flujo de "añadir contraseña", fuera de alcance de v1 (ver sección 7).
 
-## 5. Reglas de negocio
+## 5. Entrega de tokens: cookies httpOnly
+
+Ningún endpoint devuelve `access_token` ni `refresh_token` como campo del cuerpo JSON. Los dos viajan como cookies `httpOnly`, puestas por el servidor con `Set-Cookie` en la respuesta de `register`, `login`, `google` y `refresh`, y borradas en `logout`.
+
+La razón de no ponerlos en el cuerpo: un token en el JSON de la respuesta solo puede guardarlo el cliente en algún sitio accesible por JavaScript (`localStorage`, una variable en memoria...), y cualquier XSS que consiga ejecutar código en la página puede leerlo de ahí y robarlo. Una cookie `httpOnly` no la puede leer JavaScript bajo ningún concepto — el navegador la adjunta solo a las peticiones, sin que el código de la aplicación llegue a tocar el valor.
+
+Frontend y backend viven en dominios distintos (no es un caso de mismo dominio con rutas `/api`), así que esto es una cookie **cross-site** de verdad, con las implicaciones que conlleva:
+
+| Cookie | Path | Contiene | Motivo del `Path` |
+|---|---|---|---|
+| `access_token` | `/` | JWT de acceso | Hace falta en cualquier endpoint protegido de toda la API. |
+| `refresh_token` | `/api/v1/auth` | JWT de refresco | Solo lo necesitan `refresh` y `logout`; restringir el `Path` evita que viaje en cada petición a la API sin necesidad. |
+
+Atributos comunes a las dos:
+
+- **`HttpOnly`** — siempre. Inaccesible desde JavaScript.
+- **`Secure`** — solo en producción. Obligatorio en cuanto `SameSite=None`; en desarrollo, con todo bajo `localhost`, no hace falta.
+- **`SameSite`** — `None` en producción (dominios registrables distintos, cookie cross-site real); `Lax` en desarrollo (frontend y backend comparten `localhost`, aunque en puertos distintos, y `Lax` ya basta para peticiones `fetch`/XHR entre ellos).
+- **Expiración** — igual que la del JWT que contienen: `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` / `JWT_REFRESH_TOKEN_EXPIRE_DAYS` (ver sección 6).
+
+Con credenciales viajando en cookies cross-site, el CORS del backend exige el origen exacto del frontend en `CORS_ALLOWED_ORIGINS` (nunca `*`) y `allow_credentials=True`; el cliente, por su parte, tiene que mandar sus peticiones con `credentials: "include"` (o el equivalente de su librería HTTP) para que el navegador adjunte las cookies. Ver `ARCHITECTURE.md` §5.7.
+
+## 6. Reglas de negocio
 
 - Un usuario puede tener como máximo un método `local` (impuesto por índice único parcial en el esquema) y múltiples métodos externos, uno por proveedor distinto.
 - La vinculación automática por coincidencia de email (caso de uso 4) se basa en que `users.email` es único: si el email de la cuenta de Google ya existe como `User`, no puede crearse un `User` nuevo con ese email, así que la única operación coherente es vincular.
+- El email se normaliza (`strip` + minúsculas) en el propio esquema de entrada, antes de tocar la base de datos — así el mismo email con distinto formato de mayúsculas se reconoce como el mismo usuario tanto al registrarse como al iniciar sesión.
 - El payload del JWT de acceso contiene el identificador del usuario y su expiración; no contiene datos sensibles ni el rol/pertenencia a grupos (eso se resuelve en cada petición contra la base de datos, no se cachea en el token).
-- Duración por defecto: token de acceso 15 minutos; refresh token 30 días. Configurables vía `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` / `JWT_REFRESH_TOKEN_EXPIRE_DAYS` (ver `ARCHITECTURE.md`).
+- Duración por defecto: token de acceso 30 minutos; refresh token 7 días. Configurables vía `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` / `JWT_REFRESH_TOKEN_EXPIRE_DAYS` (ver `ARCHITECTURE.md`).
 - El logout es por sesión (dispositivo), no revoca el resto de sesiones activas del usuario.
 
-## 6. Fuera de alcance (v1)
+## 7. Fuera de alcance (v1)
 
 - Recuperación de contraseña olvidada (flujo de email con token de restablecimiento).
 - Autenticación de dos factores.
@@ -94,10 +117,11 @@ Cambio de contraseña, requiere autenticación.
 - Listado de sesiones activas visibles para el usuario.
 - Otros proveedores OAuth distintos de Google.
 
-## 7. Criterios de aceptación
+## 8. Criterios de aceptación
 
 - Un registro con un email ya existente devuelve `409`, sin crear ninguna fila.
 - Un login con contraseña incorrecta y un login con email inexistente devuelven la misma respuesta `401`, indistinguible entre sí.
+- Ninguna respuesta de `register`, `login`, `google` o `refresh` incluye `access_token` ni `refresh_token` en el cuerpo JSON; ambos llegan exclusivamente como cookies `httpOnly`.
 - Tras un `refresh`, el refresh token anterior deja de ser válido para una nueva renovación.
 - Tras un `logout`, el refresh token usado deja de ser válido para `refresh`, pero el resto de sesiones del usuario en otros dispositivos siguen activas.
 - Un login con Google usando un email ya registrado por `local` no crea un segundo `User`; ambos métodos quedan vinculados al mismo `User`.

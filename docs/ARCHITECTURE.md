@@ -221,7 +221,11 @@ Un `500` nunca expone la excepción original. El traceback completo va al log de
 
 ### 5.7 CORS
 
-Los orígenes permitidos se configuran mediante `CORS_ALLOWED_ORIGINS`. No se permite el origen comodín (`*`) cuando la autenticación viaja en cabeceras o cookies.
+Frontend y backend viven en dominios distintos — no es un despliegue de mismo dominio con rutas `/api`, sino dos orígenes separados de verdad. Como la sesión viaja en cookies (ver §7.1), esto son peticiones cross-site, no solo cross-origin, y eso condiciona toda la configuración:
+
+- Los orígenes permitidos se configuran mediante `CORS_ALLOWED_ORIGINS`, como lista explícita. No se permite el origen comodín (`*`): un navegador lo rechaza en cuanto la petición lleva credenciales (cookies), así que con `*` las peticiones cross-site fallarían igualmente.
+- El middleware de CORS se registra con `allow_credentials=True`, imprescindible para que el navegador adjunte cookies en peticiones entre orígenes.
+- El cliente debe emitir sus peticiones con `credentials: "include"` (o el equivalente de su librería HTTP); sin eso, el navegador no manda la cookie aunque el origen esté permitido.
 
 ### 5.8 Endpoint de estado
 
@@ -262,11 +266,13 @@ Autenticación basada en JSON Web Tokens, con soporte de múltiples proveedores 
 
 La renovación de sesión se gestiona mediante refresh tokens; se persiste su hash, nunca el valor en claro, permitiendo revocación selectiva.
 
+Ningún token viaja en el cuerpo de una respuesta ni en la cabecera `Authorization`: los endpoints que autentican (`register`, `login`, `google`, `refresh`) los entregan como cookies `httpOnly` — inaccesibles desde JavaScript, lo que cierra la vía más común de robo de tokens vía XSS. Duración, nombres, `Path` y el resto de atributos de cada cookie están documentados en `docs/domains/auth.md` §5, junto con la configuración de CORS que hace falta porque frontend y backend son dominios distintos (ver §5.7).
+
 ### 7.2 Control de acceso
 
 Resuelto mediante inyección de dependencias encadenadas:
 
-- **`get_current_user`** — valida el JWT y resuelve el usuario autenticado. Dependencia base de la que dependen las siguientes.
+- **`get_current_user`** — valida el JWT y resuelve el usuario autenticado. Lo lee de la cookie `access_token`, no de una cabecera `Authorization`. Dependencia base de la que dependen las siguientes.
 - **`verify_group_membership`** — para endpoints donde el identificador de grupo forma parte de la ruta.
 - **`verify_account_access`** — para endpoints que operan sobre un recurso por su propio identificador, resolviendo la pertenencia al grupo antes de autorizar.
 
