@@ -32,8 +32,8 @@ def get_db() -> Generator[Session, None, None]:
 
     Se usa como dependencia de FastAPI:
 
-        @router.get("/algo")
-        def leer_algo(db: Session = Depends(get_db)):
+        @router.get("/items")
+        def read_items(db: Session = Depends(get_db)):
             ...
 
     El `commit` ocurre una sola vez, al terminar la petición sin errores;
