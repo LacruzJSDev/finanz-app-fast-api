@@ -66,3 +66,12 @@ class AuthRepository:
             .where(UserSession.refresh_token_hash == refresh_token_hash)
             .values(revoked=True)
         )
+
+    def get_session_by_refresh_token_hash(
+        self, refresh_token_hash: str
+    ) -> UserSession | None:
+        return self.db.execute(
+            select(UserSession).where(
+                UserSession.refresh_token_hash == refresh_token_hash
+            )
+        ).scalar_one_or_none()

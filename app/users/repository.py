@@ -1,3 +1,4 @@
+import uuid
 from dataclasses import dataclass
 
 from sqlalchemy import select
@@ -26,3 +27,8 @@ class UserRepository:
         self.db.add(user)
         self.db.flush()
         return user
+
+    def get_user_by_id(self, user_id: uuid.UUID) -> User | None:
+        return self.db.execute(
+            select(User).where(User.id == user_id)
+        ).scalar_one_or_none()

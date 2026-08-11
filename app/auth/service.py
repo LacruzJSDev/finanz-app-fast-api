@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy.exc import IntegrityError
 
@@ -22,6 +22,8 @@ from app.users.schemas import UserRead
 # contraseña no coincide: docs/domains/auth.md lo exige explícitamente, para
 # no confirmar desde la respuesta qué emails están registrados.
 _INVALID_CREDENTIALS_MESSAGE = "Email o contraseña incorrectos"
+_NO_SESSION_MESSAGE = "Session no encontrada"
+_NO_USER_MESSAGE = "Usuario no encontrado"
 
 
 @dataclass
@@ -112,3 +114,23 @@ class AuthService:
     def logout(self, refresh_token: str) -> None:
         refresh_token_hash = hash_token(refresh_token)
         self.auth_repo.revoke_session_by_refresh_token_hash(refresh_token_hash)
+
+    def refresh(self, refresh_token: str) -> AuthResult:
+        refresh_token_hash = hash_token(refresh_token)
+        existing_session = self.auth_repo.get_session_by_refresh_token_hash(
+            refresh_token_hash
+        )
+        if not existing_session:
+            raise UnauthorizedError(_NO_SESSION_MESSAGE)
+        if existing_session.revoked:
+            raise UnauthorizedError(_NO_SESSION_MESSAGE)
+        if existing_session.expires_at < datetime.now(timezone.utc):
+            raise UnauthorizedError(_NO_SESSION_MESSAGE)
+
+        user = self.user_repo.get_user_by_id(existing_session.user_id)
+        if not user:
+            raise UnauthorizedError(_NO_USER_MESSAGE)
+
+        self.auth_repo.revoke_session_by_refresh_token_hash(refresh_token_hash)
+
+        return self._issue_tokens(user)

@@ -33,3 +33,5 @@ Content-Type: application/json
 ### Logout
 POST {{baseUrl}}/api/v1/auth/logout
 
+### Refresh
+POST {{baseUrl}}/api/v1/auth/refresh

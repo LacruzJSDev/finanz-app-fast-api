@@ -58,7 +58,7 @@ Renovación del token de acceso.
 
 - **Entrada**: ninguna en el cuerpo — el `refresh_token` se lee de su cookie (ver sección 5), no se manda explícitamente.
 - **Efecto**: valida el hash contra `sessions.refresh_token_hash`, comprueba que la sesión no esté revocada ni expirada. Emite un nuevo `access_token`. El `refresh_token` se rota (se invalida el usado y se emite uno nuevo), para reducir la ventana de uso de un token filtrado.
-- **Salida**: `204 No Content`. Las dos cookies se reemiten con los valores nuevos (ver sección 5).
+- **Salida**: el `User`, en el cuerpo — igual que `login`/`register`: el cliente lo guarda en memoria y lo necesita ahí sin tener que pedirlo aparte. `access_token` y `refresh_token` como cookies httpOnly (ver sección 5).
 - **Errores**: `401` si el refresh token no es válido, está revocado o expirado.
 
 ### `POST /api/v1/auth/logout`
@@ -123,5 +123,6 @@ Con credenciales viajando en cookies cross-site, el CORS del backend exige el or
 - Un login con contraseña incorrecta y un login con email inexistente devuelven la misma respuesta `401`, indistinguible entre sí.
 - Ninguna respuesta de `register`, `login`, `google` o `refresh` incluye `access_token` ni `refresh_token` en el cuerpo JSON; ambos llegan exclusivamente como cookies `httpOnly`.
 - Tras un `refresh`, el refresh token anterior deja de ser válido para una nueva renovación.
+- Un `refresh` con la cookie `refresh_token` de una sesión ya expirada (`expires_at` en el pasado) devuelve `401`, sin emitir tokens nuevos.
 - Tras un `logout`, el refresh token usado deja de ser válido para `refresh`, pero el resto de sesiones del usuario en otros dispositivos siguen activas.
 - Un login con Google usando un email ya registrado por `local` no crea un segundo `User`; ambos métodos quedan vinculados al mismo `User`.

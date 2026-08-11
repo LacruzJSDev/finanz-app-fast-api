@@ -86,3 +86,14 @@ def logout(service: AuthServiceDep, request: Request, response: Response):
     service.logout(refresh_token)
     _delete_auth_cookies(response)
     return
+
+
+@router.post("/refresh")
+def refresh(service: AuthServiceDep, request: Request, response: Response):
+    """Refresca el token y lo rota."""
+    refresh_token = request.cookies.get("refresh_token")
+    if refresh_token is None:
+        raise UnauthorizedError("Refresh token no presente en la petición")
+    result = service.refresh(refresh_token)
+    _set_auth_cookies(response, result)
+    return result.user
