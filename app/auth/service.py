@@ -1,9 +1,11 @@
 from dataclasses import dataclass
 
+from sqlalchemy.exc import IntegrityError
+
 from app.auth.repository import AuthRepository
 from app.auth.schemas import LoginResponse
-from app.shared.bcrypt import verify_password
-from app.shared.exceptions import UnauthorizedError
+from app.shared.bcrypt import hash_password, verify_password
+from app.shared.exceptions import ConflictError, UnauthorizedError
 from app.shared.hashing import hash_token
 from app.shared.jwt import (
     REFRESH_TOKEN_TYPE,
@@ -11,6 +13,7 @@ from app.shared.jwt import (
     create_refresh_token,
     decode_token,
 )
+from app.users.models import User
 from app.users.repository import UserRepository
 from app.users.schemas import UserRead
 
@@ -32,18 +35,7 @@ class AuthService:
     auth_repo: AuthRepository
     user_repo: UserRepository
 
-    def login(self, email: str, password: str) -> LoginResponse:
-        user = self.user_repo.get_user_by_email(email)
-        if not user:
-            raise UnauthorizedError(_INVALID_CREDENTIALS_MESSAGE)
-
-        local_provider = self.auth_repo.get_local_provider(user.id)
-        if not local_provider or not local_provider.password_hash:
-            raise UnauthorizedError(_INVALID_CREDENTIALS_MESSAGE)
-
-        if not verify_password(password, local_provider.password_hash):
-            raise UnauthorizedError(_INVALID_CREDENTIALS_MESSAGE)
-
+    def _issue_tokens(self, user: User) -> LoginResponse:
         access_token = create_access_token(user.id)
         refresh_token = create_refresh_token(user.id)
 
@@ -63,3 +55,35 @@ class AuthService:
             access_token=access_token,
             refresh_token=refresh_token,
         )
+
+    def login(self, email: str, password: str) -> LoginResponse:
+        user = self.user_repo.get_user_by_email(email)
+        if not user:
+            raise UnauthorizedError(_INVALID_CREDENTIALS_MESSAGE)
+
+        local_provider = self.auth_repo.get_local_provider(user.id)
+        if not local_provider or not local_provider.password_hash:
+            raise UnauthorizedError(_INVALID_CREDENTIALS_MESSAGE)
+
+        if not verify_password(password, local_provider.password_hash):
+            raise UnauthorizedError(_INVALID_CREDENTIALS_MESSAGE)
+
+        return self._issue_tokens(user)
+
+    def register(self, email: str, name: str, password: str) -> LoginResponse:
+        existing_user = self.user_repo.get_user_by_email(email)
+
+        if existing_user:
+            raise ConflictError("El usuario ya está registrado con ese correo")
+
+        try:
+            user = self.user_repo.create_user(email, name)
+        except IntegrityError:
+            raise ConflictError(
+                "El usuario ya está registrado con ese correo"
+            ) from None
+
+        password_hash = hash_password(password)
+        self.auth_repo.create_local_provider(user.id, password_hash)
+
+        return self._issue_tokens(user)
