@@ -1,12 +1,27 @@
 from fastapi import FastAPI
+from starlette.middleware.cors import CORSMiddleware
 
 from app.auth.router import router as auth_router
+from app.config import settings
 from app.shared.error_handlers import register_error_handlers
 
 app = FastAPI(title="FinanzApp API", version="0.1.0")
 
 # Unifica la forma de TODAS las respuestas de error (ver ARCHITECTURE.md §5.6).
 register_error_handlers(app)
+
+# Frontend y backend viven en dominios distintos: sin esto, el navegador
+# bloquea toda petición hecha con fetch/XHR antes de que llegue aquí.
+# allow_credentials=True es lo que permite que las cookies de sesión viajen
+# en peticiones cross-site — exige un origen explícito en allow_origins, "*"
+# no vale en cuanto se permiten credenciales (ver ARCHITECTURE.md §5.7).
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Todas las rutas de negocio cuelgan de /api/v1. El prefijo se pone aquí, una
 # sola vez, y no dentro de cada router (ver ARCHITECTURE.md §5.1).
