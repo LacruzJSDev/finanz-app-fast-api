@@ -117,7 +117,17 @@ Las marcas de tiempo (`created_at`, `updated_at`) se almacenan y sirven en UTC, 
 
 ### 5.4 Colecciones y paginación
 
-Los endpoints que devuelven colecciones de tamaño no acotado responden con un envoltorio que incluye metadatos de paginación, no un array plano:
+**Ninguna colección se devuelve como array plano.** Toda respuesta de lista va envuelta en un objeto con la clave `items`, pagine o no. El cliente lee siempre `.items` sin tener que recordar qué endpoints paginan, y el envoltorio deja sitio para añadir metadatos más adelante sin romper el contrato.
+
+Colección sin paginar — el caso general:
+
+```json
+{
+  "items": [...]
+}
+```
+
+Colección paginada — añade los metadatos sobre la misma estructura:
 
 ```json
 {
@@ -128,7 +138,14 @@ Los endpoints que devuelven colecciones de tamaño no acotado responden con un e
 }
 ```
 
-La paginación se implementa mediante `limit`/`offset`, apoyada en índices sobre la columna de ordenación relevante. Se aplica donde el volumen esperado lo justifica (ver sección 9.2); no es obligatoria en colecciones de tamaño naturalmente acotado.
+La paginación se implementa mediante `limit`/`offset`, apoyada en índices sobre la columna de ordenación relevante. Se aplica donde el volumen esperado lo justifica (ver sección 9.2). En el alcance actual, el único endpoint paginado es el listado de transacciones de una cuenta; el resto de colecciones son de tamaño naturalmente acotado.
+
+Ambas formas están implementadas como esquemas genéricos reutilizables en `app/shared/schemas.py`, y se declaran como tipo de retorno del endpoint:
+
+```python
+def listar_grupos(...) -> CollectionResponse[AccountGroupRead]: ...
+def listar_transacciones(...) -> PaginatedResponse[TransactionRead]: ...
+```
 
 ### 5.5 Actualizaciones parciales
 
@@ -136,15 +153,71 @@ Los esquemas de actualización (`XUpdate`) declaran todos los campos como opcion
 
 ### 5.6 Convención de errores
 
+#### Forma de la respuesta
+
+**Todos** los errores de la API comparten una única estructura, sea cual sea su origen: validación, autorización, recurso inexistente, ruta mal escrita o fallo interno. El cliente puede escribir un solo manejador.
+
+```json
+{
+  "error": {
+    "code": "account_not_found",
+    "message": "Cuenta no encontrada"
+  }
+}
+```
+
+- `code` — identificador estable, en `snake_case`, pensado para que el cliente distinga causas **sin leer el mensaje**. Es lo que se compara en un `switch`; el texto puede cambiar o traducirse sin romper nada.
+- `message` — descripción legible para una persona.
+- `details` — presente **solo** en errores de validación. Se omite del JSON cuando no aplica, nunca se envía como `null`.
+
+Errores de validación (`422`), con el detalle por campo:
+
+```json
+{
+  "error": {
+    "code": "validation_error",
+    "message": "Los datos enviados no son válidos",
+    "details": [
+      { "field": "body.email", "message": "Field required" },
+      { "field": "body.amount", "message": "Input should be a valid integer" }
+    ]
+  }
+}
+```
+
+`field` es la ruta del campo aplanada con puntos, empezando por su ubicación (`body`, `query`, `path`).
+
+Esta forma **no** es la que FastAPI produce por defecto — sin intervención devolvería `detail` como lista en los `422`, `detail` como cadena en los `404` y texto plano sin JSON en los `500`. La unificación la hacen los manejadores registrados en `app/shared/error_handlers.py`.
+
+#### Códigos de estado
+
 | Código | Uso |
 |---|---|
+| `400` | Petición malformada que no es un fallo de esquema |
 | `401` | Autenticación ausente o inválida |
 | `403` | Autenticado, sin autorización sobre el recurso |
 | `404` | Recurso inexistente |
 | `409` | Conflicto de unicidad o de estado (por ejemplo, email ya registrado) |
 | `422` | Error de validación de esquema de entrada |
+| `500` | Error no controlado |
 
-Un error de autorización nunca se enmascara como `404`. El cuerpo de respuesta de error sigue el formato `{"detail": ...}`, consistente con la generación automática de documentación de la API.
+Un error de autorización nunca se enmascara como `404`.
+
+#### Cómo se lanzan
+
+La capa de servicio lanza excepciones de dominio, nunca `HTTPException`: así `service.py` no necesita conocer FastAPI ni los códigos HTTP (ver sección 2.2). La jerarquía base vive en `app/shared/exceptions.py`, y cada dominio deriva las suyas con un `code` propio:
+
+```python
+class InvalidCredentialsError(UnauthorizedError):
+    code = "invalid_credentials"
+    message = "Email o contraseña incorrectos"
+```
+
+La traducción de excepción a respuesta HTTP ocurre en un único sitio, el manejador global. Ningún router captura excepciones para convertirlas en respuestas.
+
+#### Errores internos
+
+Un `500` nunca expone la excepción original. El traceback completo va al log del servidor; el cliente recibe siempre el mismo cuerpo genérico, para no filtrar rutas de ficheros ni detalles de implementación a quien provoque el fallo.
 
 ### 5.7 CORS
 
