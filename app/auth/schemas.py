@@ -1,6 +1,12 @@
 from pydantic import BaseModel, Field
 
-from app.users.schemas import NormalizedEmail, UserRead
+from app.users.schemas import NormalizedEmail
+
+# No hay un LoginResponse aquí: login y register devuelven UserRead
+# directamente (ver app/auth/router.py). Los tokens no viajan en el cuerpo de
+# la respuesta, sino en cookies httpOnly — un esquema que los incluyera como
+# campos normales invitaría a leerlos desde el cliente, que es justo lo que
+# httpOnly existe para impedir.
 
 
 class LoginRequest(BaseModel):
@@ -10,17 +16,8 @@ class LoginRequest(BaseModel):
     password: str
 
 
-class LoginResponse(BaseModel):
-    """Respuesta de los endpoints que abren sesión: login, register, refresh."""
-
-    user: UserRead
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-
-
 class RegisterRequest(BaseModel):
-    """Cuerpo de POST /auth/register"""
+    """Cuerpo de POST /auth/register."""
 
     email: NormalizedEmail
     name: str

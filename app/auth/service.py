@@ -1,13 +1,14 @@
 from dataclasses import dataclass
+from datetime import datetime
 
 from sqlalchemy.exc import IntegrityError
 
 from app.auth.repository import AuthRepository
-from app.auth.schemas import LoginResponse
 from app.shared.bcrypt import hash_password, verify_password
 from app.shared.exceptions import ConflictError, UnauthorizedError
 from app.shared.hashing import hash_token
 from app.shared.jwt import (
+    ACCESS_TOKEN_TYPE,
     REFRESH_TOKEN_TYPE,
     create_access_token,
     create_refresh_token,
@@ -24,6 +25,26 @@ _INVALID_CREDENTIALS_MESSAGE = "Email o contraseña incorrectos"
 
 
 @dataclass
+class AuthResult:
+    """Lo que produce login/register puertas adentro del servicio.
+
+    No es un schema de FastAPI ni viaja tal cual al cliente: el router lee
+    los tokens de aquí para ponerlos en cookies httpOnly, y solo devuelve
+    `user` en el cuerpo de la respuesta. Los `*_expires_at` salen de
+    decodificar cada token recién emitido, no de recalcularlos a partir de
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES / JWT_REFRESH_TOKEN_EXPIRE_DAYS: así hay
+    una sola fuente de verdad (app/shared/jwt.py) para cuánto dura cada uno,
+    y el Max-Age de la cookie nunca puede desincronizarse del token real.
+    """
+
+    user: UserRead
+    access_token: str
+    access_expires_at: datetime
+    refresh_token: str
+    refresh_expires_at: datetime
+
+
+@dataclass
 class AuthService:
     """Lógica de negocio del dominio auth.
 
@@ -35,28 +56,28 @@ class AuthService:
     auth_repo: AuthRepository
     user_repo: UserRepository
 
-    def _issue_tokens(self, user: User) -> LoginResponse:
+    def _issue_tokens(self, user: User) -> AuthResult:
         access_token = create_access_token(user.id)
         refresh_token = create_refresh_token(user.id)
 
-        # expires_at sale de decodificar el propio token recién emitido, no de
-        # recalcularlo aquí a partir de JWT_REFRESH_TOKEN_EXPIRE_DAYS: así hay
-        # una sola fuente de verdad para la duración (app/shared/jwt.py), y la
-        # fila de `sessions` no puede desincronizarse del token que describe.
+        access_payload = decode_token(access_token, ACCESS_TOKEN_TYPE)
         refresh_payload = decode_token(refresh_token, REFRESH_TOKEN_TYPE)
+
         self.auth_repo.create_session(
             user_id=user.id,
             refresh_token_hash=hash_token(refresh_token),
             expires_at=refresh_payload.expires_at,
         )
 
-        return LoginResponse(
+        return AuthResult(
             user=UserRead.model_validate(user),
             access_token=access_token,
+            access_expires_at=access_payload.expires_at,
             refresh_token=refresh_token,
+            refresh_expires_at=refresh_payload.expires_at,
         )
 
-    def login(self, email: str, password: str) -> LoginResponse:
+    def login(self, email: str, password: str) -> AuthResult:
         user = self.user_repo.get_user_by_email(email)
         if not user:
             raise UnauthorizedError(_INVALID_CREDENTIALS_MESSAGE)
@@ -70,7 +91,7 @@ class AuthService:
 
         return self._issue_tokens(user)
 
-    def register(self, email: str, name: str, password: str) -> LoginResponse:
+    def register(self, email: str, name: str, password: str) -> AuthResult:
         existing_user = self.user_repo.get_user_by_email(email)
 
         if existing_user:

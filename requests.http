@@ -4,6 +4,13 @@
 GET {{baseUrl}}/health
 
 ### Authentication
+###
+### login y register devuelven el usuario en el cuerpo; los tokens llegan
+### como cookies httpOnly (Set-Cookie), no en el JSON. El REST Client de
+### VS Code guarda esas cookies solas y las reenvía en las siguientes
+### peticiones de este mismo fichero, así que tras un login no hace falta
+### copiar ningún token a mano.
+
 ### Login
 POST {{baseUrl}}/api/v1/auth/login
 Content-Type: application/json

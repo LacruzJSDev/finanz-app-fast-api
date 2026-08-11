@@ -1,20 +1,71 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
 
 from app.auth.dependencies import AuthServiceDep
-from app.auth.schemas import LoginRequest, LoginResponse, RegisterRequest
+from app.auth.schemas import LoginRequest, RegisterRequest
+from app.auth.service import AuthResult
+from app.config import settings
+from app.users.schemas import UserRead
 
 # El prefijo aquí es solo el del dominio. La versión (/api/v1) la pone main.py
 # al montar el router, para que cambiarla sea tocar una línea y no doce.
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+ACCESS_TOKEN_COOKIE = "access_token"
+REFRESH_TOKEN_COOKIE = "refresh_token"
+
+
+def _set_auth_cookies(response: Response, result: AuthResult) -> None:
+    """Pone los dos tokens como cookies httpOnly, nunca en el cuerpo JSON.
+
+    httpOnly impide que cualquier JavaScript (el tuyo o el de un XSS colado)
+    lea el valor de la cookie — el navegador la adjunta solo, la aplicación
+    cliente nunca la toca.
+
+    El refresh token se restringe a /api/v1/auth con `path`: el navegador
+    solo lo adjunta en peticiones bajo ese prefijo, así que no viaja en cada
+    llamada a la API como sí hace el access token — no lo necesita para nada
+    salvo /refresh y /logout.
+
+    secure/samesite salen de Settings (dev vs producción, ver app/config.py):
+    en producción front y back son dominios distintos de verdad, y eso exige
+    SameSite=None + Secure; en local, con todo bajo localhost, Lax basta y
+    permite probar sin HTTPS.
+    """
+    response.set_cookie(
+        ACCESS_TOKEN_COOKIE,
+        result.access_token,
+        expires=result.access_expires_at,
+        path="/",
+        httponly=True,
+        secure=settings.cookie_secure,
+        samesite=settings.cookie_samesite,
+    )
+    response.set_cookie(
+        REFRESH_TOKEN_COOKIE,
+        result.refresh_token,
+        expires=result.refresh_expires_at,
+        path="/api/v1/auth",
+        httponly=True,
+        secure=settings.cookie_secure,
+        samesite=settings.cookie_samesite,
+    )
+
 
 @router.post("/login")
-def login(payload: LoginRequest, service: AuthServiceDep) -> LoginResponse:
+def login(
+    payload: LoginRequest, service: AuthServiceDep, response: Response
+) -> UserRead:
     """Inicio de sesión con credenciales locales."""
-    return service.login(payload.email, payload.password)
+    result = service.login(payload.email, payload.password)
+    _set_auth_cookies(response, result)
+    return result.user
 
 
 @router.post("/register")
-def register(payload: RegisterRequest, service: AuthServiceDep) -> LoginResponse:
+def register(
+    payload: RegisterRequest, service: AuthServiceDep, response: Response
+) -> UserRead:
     """Registro de un nuevo usuario local."""
-    return service.register(payload.email, payload.name, payload.password)
+    result = service.register(payload.email, payload.name, payload.password)
+    _set_auth_cookies(response, result)
+    return result.user
