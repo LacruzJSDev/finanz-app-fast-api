@@ -1,9 +1,23 @@
+import enum
 from collections.abc import Generator
 
 from sqlalchemy import MetaData, create_engine
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 from app.config import settings
+
+
+def enum_values(enum_class: type[enum.Enum]) -> list[str]:
+    """Devuelve los VALORES de una enumeración, para `Enum(values_callable=...)`.
+
+    Por defecto SQLAlchemy guardaría en Postgres los NOMBRES de los miembros
+    ('LOCAL'), no sus valores ('local').
+
+    Función con nombre y no lambda: `values_callable` recibe su parámetro como
+    Any, y los parámetros de una lambda no se pueden anotar.
+    """
+    return [str(member.value) for member in enum_class]
+
 
 # Plantillas de nombre para índices y restricciones. Sin esto, Postgres asigna
 # nombres automáticos que Alembic no sabe reproducir, y un `downgrade` que
