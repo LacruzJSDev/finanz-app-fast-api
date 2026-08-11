@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Request, Response, status
 
 from app.auth.dependencies import AuthServiceDep
 from app.auth.schemas import LoginRequest, RegisterRequest
 from app.auth.service import AuthResult
 from app.config import settings
+from app.shared.exceptions import UnauthorizedError
 from app.users.schemas import UserRead
 
 # El prefijo aquí es solo el del dominio. La versión (/api/v1) la pone main.py
@@ -51,6 +52,11 @@ def _set_auth_cookies(response: Response, result: AuthResult) -> None:
     )
 
 
+def _delete_auth_cookies(response: Response):
+    response.delete_cookie(ACCESS_TOKEN_COOKIE)
+    response.delete_cookie(REFRESH_TOKEN_COOKIE, path="/api/v1/auth")
+
+
 @router.post("/login")
 def login(
     payload: LoginRequest, service: AuthServiceDep, response: Response
@@ -69,3 +75,14 @@ def register(
     result = service.register(payload.email, payload.name, payload.password)
     _set_auth_cookies(response, result)
     return result.user
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(service: AuthServiceDep, request: Request, response: Response):
+    """Cierra la sesión actual del usuario."""
+    refresh_token = request.cookies.get("refresh_token")
+    if refresh_token is None:
+        raise UnauthorizedError("Refresh token no presente en la petición")
+    service.logout(refresh_token)
+    _delete_auth_cookies(response)
+    return

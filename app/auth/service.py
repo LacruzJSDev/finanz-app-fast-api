@@ -108,3 +108,7 @@ class AuthService:
         self.auth_repo.create_local_provider(user.id, password_hash)
 
         return self._issue_tokens(user)
+
+    def logout(self, refresh_token: str) -> None:
+        refresh_token_hash = hash_token(refresh_token)
+        self.auth_repo.revoke_session_by_refresh_token_hash(refresh_token_hash)

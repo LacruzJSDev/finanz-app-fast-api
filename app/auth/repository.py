@@ -2,7 +2,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.auth.models import AuthProvider, AuthProviderEnum, UserSession
@@ -58,3 +58,11 @@ class AuthRepository:
         )
         self.db.add(session)
         return session
+
+    def revoke_session_by_refresh_token_hash(self, refresh_token_hash: str) -> None:
+        """Revoca una sesión buscando por el hash del refresh_token"""
+        self.db.execute(
+            update(UserSession)
+            .where(UserSession.refresh_token_hash == refresh_token_hash)
+            .values(revoked=True)
+        )
