@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, BeforeValidator, ConfigDict
 
 
 class UserRead(BaseModel):
@@ -21,3 +22,10 @@ class UserRead(BaseModel):
     name: str
     created_at: datetime
     updated_at: datetime
+
+
+def normalize_email(value: str) -> str:
+    return value.strip().lower()
+
+
+NormalizedEmail = Annotated[str, BeforeValidator(normalize_email)]
