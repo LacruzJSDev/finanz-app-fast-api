@@ -20,3 +20,9 @@ class UserRepository:
         return self.db.execute(
             select(User).where(User.email == email)
         ).scalar_one_or_none()
+
+    def create_user(self, email: str, name: str) -> User:
+        user = User(email=email, name=name)
+        self.db.add(user)
+        self.db.flush()
+        return user
