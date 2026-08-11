@@ -2,3 +2,14 @@
 
 ### Health check
 GET {{baseUrl}}/health
+
+### Authentication
+### Login
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
+
+{
+    "email": "user@example.com",
+    "password": "password123"
+}
+
