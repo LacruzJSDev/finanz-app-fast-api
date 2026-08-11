@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -32,6 +34,39 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @property
+    def cors_allowed_origins(self) -> list[str]:
+        """CORS_ALLOWED_ORIGINS troceada por comas, lista para CORSMiddleware."""
+        return [
+            origin.strip()
+            for origin in self.CORS_ALLOWED_ORIGINS.split(",")
+            if origin.strip()
+        ]
+
+    @property
+    def cookie_secure(self) -> bool:
+        """Si las cookies de sesión exigen HTTPS.
+
+        Frontend y backend viven en dominios distintos (no solo puertos
+        distintos de localhost), así que en producción la cookie es
+        cross-site de verdad, y los navegadores exigen `Secure` en cuanto
+        `SameSite=None` — sin HTTPS, el navegador la descarta en silencio.
+        """
+        return self.ENVIRONMENT == "production"
+
+    @property
+    def cookie_samesite(self) -> Literal["lax", "none"]:
+        """`none` en producción (cross-site real); `lax` en desarrollo.
+
+        "Site" no es lo mismo que "origen": dos servicios en `localhost` con
+        puertos distintos (típico en desarrollo: Vite en :5173, la API en
+        :8000) siguen siendo el MISMO site, así que `lax` ya deja pasar la
+        cookie en peticiones fetch/XHR sin necesitar `Secure` ni HTTPS local.
+        En producción, con dominios registrables distintos de verdad,
+        `SameSite=Lax` bloquearía la cookie y hace falta `none` (+ Secure).
+        """
+        return "none" if self.ENVIRONMENT == "production" else "lax"
 
 
 # type: ignore silencia un falso positivo conocido de pydantic-settings: el
