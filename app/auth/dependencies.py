@@ -5,19 +5,15 @@ from fastapi import Depends
 from app.auth.repository import AuthRepository
 from app.auth.service import AuthService
 from app.shared.dependencies import DbSession
+from app.users.dependencies import get_user_repository
 from app.users.repository import UserRepository
 
-# Cableado del dominio: el único módulo que conoce a la vez FastAPI y las
-# clases de las capas. Existe para que service.py y repository.py se queden sin
-# importaciones de FastAPI, como exige ARCHITECTURE.md §2.2.
+# get_user_repository no se define aquí: UserRepository es del dominio users,
+# y get_current_user (app/shared/dependencies.py) también lo necesita.
 
 
 def get_auth_repository(db: DbSession) -> AuthRepository:
     return AuthRepository(db)
-
-
-def get_user_repository(db: DbSession) -> UserRepository:
-    return UserRepository(db)
 
 
 def get_auth_service(
