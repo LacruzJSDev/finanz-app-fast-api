@@ -30,6 +30,18 @@ class AuthRepository:
             )
         ).scalar_one_or_none()
 
+    def create_local_provider(
+        self, user_id: uuid.UUID, password_hash: str
+    ) -> AuthProvider:
+        """Método de creación de un nuevo auth_provider local para un usuario"""
+        auth_provider_local = AuthProvider(
+            user_id=user_id,
+            provider=AuthProviderEnum.LOCAL,
+            password_hash=password_hash,
+        )
+        self.db.add(auth_provider_local)
+        return auth_provider_local
+
     def create_session(
         self, user_id: uuid.UUID, refresh_token_hash: str, expires_at: datetime
     ) -> UserSession:
