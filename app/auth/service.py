@@ -79,17 +79,27 @@ class AuthService:
             refresh_expires_at=refresh_payload.expires_at,
         )
 
-    def login(self, email: str, password: str) -> AuthResult:
-        user = self.user_repo.get_user_by_email(email)
-        if not user:
-            raise UnauthorizedError(_INVALID_CREDENTIALS_MESSAGE)
+    def _verify_local_password(self, user: User, password: str) -> None:
+        """Comprueba `password` contra el método local de un usuario ya conocido.
 
+        No busca al usuario por email: eso es cosa de `login`, donde el email
+        es la única pista que trae el cliente. Aquí la identidad ya está
+        resuelta —por `login` a partir del email, o por `get_current_user` a
+        partir del token— y lo único que falta es confirmar la contraseña.
+        """
         local_provider = self.auth_repo.get_local_provider(user.id)
         if not local_provider or not local_provider.password_hash:
             raise UnauthorizedError(_INVALID_CREDENTIALS_MESSAGE)
 
         if not verify_password(password, local_provider.password_hash):
             raise UnauthorizedError(_INVALID_CREDENTIALS_MESSAGE)
+
+    def login(self, email: str, password: str) -> AuthResult:
+        user = self.user_repo.get_user_by_email(email)
+        if not user:
+            raise UnauthorizedError(_INVALID_CREDENTIALS_MESSAGE)
+
+        self._verify_local_password(user, password)
 
         return self._issue_tokens(user)
 
@@ -134,3 +144,10 @@ class AuthService:
         self.auth_repo.revoke_session_by_refresh_token_hash(refresh_token_hash)
 
         return self._issue_tokens(user)
+
+    def change_password(
+        self, user: User, current_password: str, new_password: str
+    ) -> None:
+        self._verify_local_password(user, current_password)
+        password_hash = hash_password(new_password)
+        self.auth_repo.change_password_hash(user.id, password_hash)

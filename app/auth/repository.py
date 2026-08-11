@@ -42,6 +42,17 @@ class AuthRepository:
         self.db.add(auth_provider_local)
         return auth_provider_local
 
+    def change_password_hash(self, user_id: uuid.UUID, password_hash: str) -> None:
+        """Método para cambiar la contraseña del auth_provider local"""
+        self.db.execute(
+            update(AuthProvider)
+            .where(
+                AuthProvider.user_id == user_id,
+                AuthProvider.provider == AuthProviderEnum.LOCAL,
+            )
+            .values(password_hash=password_hash)
+        )
+
     def create_session(
         self, user_id: uuid.UUID, refresh_token_hash: str, expires_at: datetime
     ) -> UserSession:

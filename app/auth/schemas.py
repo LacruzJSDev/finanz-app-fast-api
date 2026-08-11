@@ -22,3 +22,10 @@ class RegisterRequest(BaseModel):
     email: NormalizedEmail
     name: str
     password: str = Field(min_length=8, max_length=72)
+
+
+class ChangePasswordRequest(BaseModel):
+    """Cuerpo de PATCH /auth/change_password"""
+
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=72)

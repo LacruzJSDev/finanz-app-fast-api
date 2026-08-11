@@ -1,9 +1,14 @@
 from fastapi import APIRouter, Request, Response, status
 
 from app.auth.dependencies import AuthServiceDep
-from app.auth.schemas import LoginRequest, RegisterRequest
+from app.auth.schemas import ChangePasswordRequest, LoginRequest, RegisterRequest
 from app.auth.service import AuthResult
 from app.config import settings
+from app.shared.dependencies import (
+    ACCESS_TOKEN_COOKIE,
+    REFRESH_TOKEN_COOKIE,
+    CurrentUser,
+)
 from app.shared.exceptions import UnauthorizedError
 from app.users.schemas import UserRead
 
@@ -11,26 +16,12 @@ from app.users.schemas import UserRead
 # al montar el router, para que cambiarla sea tocar una línea y no doce.
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-ACCESS_TOKEN_COOKIE = "access_token"
-REFRESH_TOKEN_COOKIE = "refresh_token"
-
 
 def _set_auth_cookies(response: Response, result: AuthResult) -> None:
     """Pone los dos tokens como cookies httpOnly, nunca en el cuerpo JSON.
 
-    httpOnly impide que cualquier JavaScript (el tuyo o el de un XSS colado)
-    lea el valor de la cookie — el navegador la adjunta solo, la aplicación
-    cliente nunca la toca.
-
-    El refresh token se restringe a /api/v1/auth con `path`: el navegador
-    solo lo adjunta en peticiones bajo ese prefijo, así que no viaja en cada
-    llamada a la API como sí hace el access token — no lo necesita para nada
-    salvo /refresh y /logout.
-
-    secure/samesite salen de Settings (dev vs producción, ver app/config.py):
-    en producción front y back son dominios distintos de verdad, y eso exige
-    SameSite=None + Secure; en local, con todo bajo localhost, Lax basta y
-    permite probar sin HTTPS.
+    refresh_token se restringe a /api/v1/auth: solo lo necesitan /refresh y
+    /logout, no hace falta que viaje en cada petición a la API.
     """
     response.set_cookie(
         ACCESS_TOKEN_COOKIE,
@@ -80,7 +71,7 @@ def register(
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 def logout(service: AuthServiceDep, request: Request, response: Response):
     """Cierra la sesión actual del usuario."""
-    refresh_token = request.cookies.get("refresh_token")
+    refresh_token = request.cookies.get(REFRESH_TOKEN_COOKIE)
     if refresh_token is None:
         raise UnauthorizedError("Refresh token no presente en la petición")
     service.logout(refresh_token)
@@ -89,11 +80,20 @@ def logout(service: AuthServiceDep, request: Request, response: Response):
 
 
 @router.post("/refresh")
-def refresh(service: AuthServiceDep, request: Request, response: Response):
+def refresh(service: AuthServiceDep, request: Request, response: Response) -> UserRead:
     """Refresca el token y lo rota."""
-    refresh_token = request.cookies.get("refresh_token")
+    refresh_token = request.cookies.get(REFRESH_TOKEN_COOKIE)
     if refresh_token is None:
         raise UnauthorizedError("Refresh token no presente en la petición")
     result = service.refresh(refresh_token)
     _set_auth_cookies(response, result)
     return result.user
+
+
+@router.patch("/change_password", status_code=status.HTTP_204_NO_CONTENT)
+def change_password(
+    service: AuthServiceDep, payload: ChangePasswordRequest, user: CurrentUser
+):
+    """Cambia la contraseña del método local. Requiere autenticación."""
+    service.change_password(user, payload.current_password, payload.new_password)
+    return

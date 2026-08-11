@@ -35,3 +35,13 @@ POST {{baseUrl}}/api/v1/auth/logout
 
 ### Refresh
 POST {{baseUrl}}/api/v1/auth/refresh
+
+### Change password
+### Requiere estar autenticado (cookie access_token de un login/register previo).
+PATCH {{baseUrl}}/api/v1/auth/change_password
+Content-Type: application/json
+
+{
+    "current_password": "password123",
+    "new_password": "password1234"
+}
