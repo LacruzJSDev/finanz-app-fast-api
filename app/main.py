@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
+from app.account_groups.router import router as account_groups_router
 from app.auth.router import router as auth_router
 from app.config import settings
 from app.shared.error_handlers import register_error_handlers
@@ -26,6 +27,7 @@ app.add_middleware(
 # Todas las rutas de negocio cuelgan de /api/v1. El prefijo se pone aquí, una
 # sola vez, y no dentro de cada router (ver ARCHITECTURE.md §5.1).
 app.include_router(auth_router, prefix="/api/v1")
+app.include_router(account_groups_router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["health"])

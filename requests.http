@@ -45,3 +45,42 @@ Content-Type: application/json
     "current_password": "password123",
     "new_password": "password1234"
 }
+
+### Account groups
+###
+### Requiere estar autenticado (cookie access_token de un login/register
+### previo en este mismo fichero).
+
+### Create group (con color e icon)
+POST {{baseUrl}}/api/v1/account-groups/
+Content-Type: application/json
+
+{
+    "name": "Mi Grupo Familiar",
+    "color": "#ffffff",
+    "icon": "home"
+}
+
+### Create group (sin color ni icon, deben ser opcionales)
+POST {{baseUrl}}/api/v1/account-groups/
+Content-Type: application/json
+
+{
+    "name": "Mi Grupo Familiar"
+}
+
+### Create group (name demasiado corto, debe fallar validación)
+POST {{baseUrl}}/api/v1/account-groups/
+Content-Type: application/json
+
+{
+    "name": "abc"
+}
+
+### Create group (sin autenticar, debe devolver 401)
+POST {{baseUrl}}/api/v1/account-groups/
+Content-Type: application/json
+
+{
+    "name": "Grupo Sin Auth"
+}
