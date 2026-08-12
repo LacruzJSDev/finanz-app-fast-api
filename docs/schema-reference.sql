@@ -212,12 +212,18 @@ CREATE TABLE account_group_members (
     user_id    UUID      NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     role       role_enum NOT NULL DEFAULT 'member',
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
 
     CONSTRAINT uq_group_member UNIQUE (group_id, user_id)
 );
 
 CREATE INDEX idx_group_members_group_id ON account_group_members (group_id);
 CREATE INDEX idx_group_members_user_id  ON account_group_members (user_id);
+
+CREATE TRIGGER trg_account_group_members_set_updated_at
+    BEFORE UPDATE ON account_group_members
+    FOR EACH ROW
+    EXECUTE FUNCTION set_updated_at();
 
 
 -- =============================================================
