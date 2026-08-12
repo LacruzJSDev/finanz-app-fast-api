@@ -57,6 +57,25 @@ Dentro de cada dominio:
 
 La dirección de dependencia es única: `router → service → repository`. Una capa nunca depende de una capa que la contiene.
 
+### 2.3 Entrada a los métodos de `service.py`
+
+Un método de servicio nunca recibe el schema de Pydantic de la petición (`RegisterRequest`, etc.) como parámetro, aunque no sea en sí mismo un objeto de FastAPI: acoplaría el service a las reglas de validación de una petición HTTP concreta, y le impediría llamarse desde cualquier sitio que no sea ese endpoint (un script, un test, otro flujo que reutilice la misma lógica).
+
+Hasta tres parámetros, van sueltos y tipados (`email: str, name: str, password: str`). A partir de ahí, o cuando el mismo grupo de campos vaya a viajar por varias capas, se agrupan en un `@dataclass` propio del service — un "comando" — nunca en el schema de entrada:
+
+```python
+@dataclass
+class RegisterCommand:
+    email: str
+    name: str
+    password: str
+
+class AuthService:
+    def register(self, command: RegisterCommand) -> AuthResult: ...
+```
+
+Es la misma idea que ya se aplica a la salida: los métodos de servicio devuelven un tipo propio (`AuthResult`, no `LoginResponse`) por la misma razón. El router es quien traduce entre el schema de la petición y el comando del service — esa traducción es precisamente su trabajo.
+
 ---
 
 ## 3. Gestión de la sesión de base de datos
