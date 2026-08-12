@@ -32,7 +32,7 @@ Requiere autenticación. Actualización parcial (ver convención de `ARCHITECTUR
 
 ## 5. Reglas de negocio
 
-- El cambio de contraseña no se gestiona aquí — vive en `auth` (`PATCH /api/v1/auth/password`), aunque conceptualmente pudiera parecer parte del "perfil". La razón: toca `auth_providers`, no `users`.
+- El cambio de contraseña no se gestiona aquí — vive en `auth` (`PATCH /api/v1/auth/change_password`), aunque conceptualmente pudiera parecer parte del "perfil". La razón: toca `auth_providers`, no `users`.
 - Un cambio de email no invalida las sesiones activas del usuario en v1 (ver sección 6).
 
 ## 6. Fuera de alcance (v1)

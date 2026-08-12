@@ -69,7 +69,7 @@ Cierre de sesión.
 - **Efecto**: marca la fila correspondiente de `sessions` como `revoked = true`. No afecta a otras sesiones activas del mismo usuario en otros dispositivos.
 - **Salida**: `204 No Content`. Borra las dos cookies (ver sección 5).
 
-### `PATCH /api/v1/auth/password`
+### `PATCH /api/v1/auth/change_password`
 
 Cambio de contraseña, requiere autenticación.
 
@@ -110,7 +110,7 @@ Con credenciales viajando en cookies cross-site, el CORS del backend exige el or
 
 ## 7. Fuera de alcance (v1)
 
-- Recuperación de contraseña olvidada (flujo de email con token de restablecimiento).
+- Recuperación de contraseña olvidada (flujo de email con token de restablecimiento) — cuando se implemente, será `POST /api/v1/auth/recover_password`, distinto de `change_password`: no requiere autenticación ni contraseña actual, solo el token de restablecimiento recibido por email.
 - Autenticación de dos factores.
 - Flujo explícito de "añadir contraseña" a una cuenta que solo tiene Google vinculado.
 - Cierre de sesión en todos los dispositivos a la vez.
