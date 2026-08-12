@@ -52,6 +52,8 @@ Inicio de sesión o registro mediante Google.
 - **Salida**: el `User`, en el cuerpo. `access_token` y `refresh_token` como cookies httpOnly (ver sección 5).
 - **Errores**: `401` si el token de Google no es válido o no se puede verificar.
 
+**Estado**: implementado en la rama `googleOAuth`, no en `dev`. Se deja fuera de `dev` a propósito hasta que el frontend integre el login con Google — sin esa integración no hay forma de probarlo con un token real, y no tiene sentido cargar `dev` con código que todavía no se puede ejercitar de verdad. Al fusionar, revisar que `GOOGLE_CLIENT_ID` esté documentado en `.env.example` y que las dependencias nuevas (`google-auth`, `requests`) sigan al día en `requirements.txt`.
+
 **Nota de implementación**: el paso 1 (verificar el token contra los servidores de Google) es la única dependencia externa real de todo el dominio `auth` — a diferencia de la base de datos, no hay forma razonable de probarlo en un test sin llamar de verdad a Google. Este es el caso concreto en el que sí compensa declarar un puerto formal (`typing.Protocol`) para ese verificador, en vez del acoplamiento directo que se usa para el resto de dependencias del dominio (ver `ARCHITECTURE.md` §2.2). Con el puerto declarado, un test puede inyectar un verificador falso sin tocar la red, y pyright avisa si a ese falso le falta algo que el puerto exige — sin el `Protocol`, ese mismo fallo no se ve hasta que revienta en tiempo de ejecución.
 
 ### `POST /api/v1/auth/refresh`
@@ -77,7 +79,7 @@ Cambio de contraseña, requiere autenticación.
 
 - **Entrada**: `current_password`, `new_password`.
 - **Efecto**: valida la contraseña actual contra la fila `local` existente, actualiza `password_hash`.
-- **Errores**: `401` si `current_password` no coincide. `404`/`409` si el usuario no tiene un método `local` configurado (por ejemplo, se registró solo con Google) — en ese caso este endpoint no aplica; se necesitaría un flujo de "añadir contraseña", fuera de alcance de v1 (ver sección 7).
+- **Errores**: `401` tanto si `current_password` no coincide como si el usuario no tiene ningún método `local` configurado (por ejemplo, se registró solo con Google) — mismo código y mismo mensaje genérico en los dos casos, por la misma razón que en `login`: no confirmar desde la respuesta cómo se registró la cuenta. Para una cuenta sin método `local` este endpoint no aplica; haría falta un flujo de "añadir contraseña", fuera de alcance de v1 (ver sección 7).
 
 ## 5. Entrega de tokens: cookies httpOnly
 
@@ -128,3 +130,4 @@ Con credenciales viajando en cookies cross-site, el CORS del backend exige el or
 - Un `refresh` con la cookie `refresh_token` de una sesión ya expirada (`expires_at` en el pasado) devuelve `401`, sin emitir tokens nuevos.
 - Tras un `logout`, el refresh token usado deja de ser válido para `refresh`, pero el resto de sesiones del usuario en otros dispositivos siguen activas.
 - Un login con Google usando un email ya registrado por `local` no crea un segundo `User`; ambos métodos quedan vinculados al mismo `User`.
+- Un `change_password` con la contraseña actual incorrecta y un `change_password` sobre una cuenta sin método `local` (por ejemplo, registrada solo con Google) devuelven la misma respuesta `401`, indistinguible entre sí.
