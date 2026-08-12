@@ -52,6 +52,8 @@ Inicio de sesión o registro mediante Google.
 - **Salida**: el `User`, en el cuerpo. `access_token` y `refresh_token` como cookies httpOnly (ver sección 5).
 - **Errores**: `401` si el token de Google no es válido o no se puede verificar.
 
+**Nota de implementación**: el paso 1 (verificar el token contra los servidores de Google) es la única dependencia externa real de todo el dominio `auth` — a diferencia de la base de datos, no hay forma razonable de probarlo en un test sin llamar de verdad a Google. Este es el caso concreto en el que sí compensa declarar un puerto formal (`typing.Protocol`) para ese verificador, en vez del acoplamiento directo que se usa para el resto de dependencias del dominio (ver `ARCHITECTURE.md` §2.2). Con el puerto declarado, un test puede inyectar un verificador falso sin tocar la red, y pyright avisa si a ese falso le falta algo que el puerto exige — sin el `Protocol`, ese mismo fallo no se ve hasta que revienta en tiempo de ejecución.
+
 ### `POST /api/v1/auth/refresh`
 
 Renovación del token de acceso.
