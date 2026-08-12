@@ -19,8 +19,8 @@
 --
 -- Estado de la traducción a Alembic:
 --   [x] users
---   [ ] auth_providers
---   [ ] sessions
+--   [x] auth_providers
+--   [x] sessions
 --   [ ] account_groups
 --   [ ] account_group_members
 --   [ ] invitations
