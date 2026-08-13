@@ -1,8 +1,16 @@
 import uuid
 from dataclasses import dataclass
 
-from app.account_groups.commands import AccountGroupCommand, AccountGroupMemberCommand
-from app.account_groups.models import AccountGroupMemberRoleEnum
+from app.account_groups.commands import (
+    AccountGroupCommand,
+    AccountGroupMemberCommand,
+    UpdateAccountGroupCommand,
+)
+from app.account_groups.models import (
+    AccountGroup,
+    AccountGroupMember,
+    AccountGroupMemberRoleEnum,
+)
 from app.account_groups.repository import (
     AccountGroupMemberRepository,
     AccountGroupsRepository,
@@ -19,6 +27,18 @@ class AccountGroupService:
     account_group_member_repo: AccountGroupMemberRepository
     user_repo: UserRepository
 
+    def _to_group_read(self, group: AccountGroup) -> GroupRead:
+        return GroupRead(
+            id=group.id,
+            name=group.name,
+            color=group.color,
+            icon=group.icon,
+            is_active=group.is_active,
+            created_at=group.created_at,
+            updated_at=group.updated_at,
+            members=[],
+        )
+
     def create_group(self, user_id: uuid.UUID, group: AccountGroupCommand) -> GroupRead:
         group = self.account_group_repo.create_account_group(group)
         account_group_member_command = AccountGroupMemberCommand(
@@ -31,16 +51,7 @@ class AccountGroupService:
             account_group_member_command
         )
 
-        group_read = GroupRead(
-            id=group.id,
-            name=group.name,
-            color=group.color,
-            icon=group.icon,
-            created_at=group.created_at,
-            updated_at=group.updated_at,
-            members=[],
-        )
-        return group_read
+        return self._to_group_read(group)
 
     def get_groups(self, user_id: uuid.UUID) -> list[GroupRead]:
         groups = self.account_group_repo.get_groups_by_user_id(user_id)
@@ -49,15 +60,7 @@ class AccountGroupService:
         users_by_id = {user.id: user for user in users}
         groups_read: list[GroupRead] = []
         for group in groups:
-            group_read = GroupRead(
-                id=group.id,
-                name=group.name,
-                color=group.color,
-                icon=group.icon,
-                created_at=group.created_at,
-                updated_at=group.updated_at,
-                members=[],
-            )
+            group_read = self._to_group_read(group)
             group_read.members = [
                 GroupMemberRead(
                     id=member.id,
@@ -72,3 +75,9 @@ class AccountGroupService:
             ]
             groups_read.append(group_read)
         return groups_read
+
+    def update_group(
+        self, membership: AccountGroupMember, group: UpdateAccountGroupCommand
+    ) -> GroupRead:
+        group = self.account_group_repo.update_group(membership, group)
+        return self._to_group_read(group)

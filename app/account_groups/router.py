@@ -1,8 +1,8 @@
 from fastapi import APIRouter, status
 
-from app.account_groups.commands import AccountGroupCommand
-from app.account_groups.dependencies import AccountGroupServiceDep
-from app.account_groups.schemas import CreateGroupRequest, GroupRead
+from app.account_groups.commands import AccountGroupCommand, UpdateAccountGroupCommand
+from app.account_groups.dependencies import AccountGroupServiceDep, CurrentMembership
+from app.account_groups.schemas import CreateGroupRequest, GroupRead, UpdateGroupRequest
 from app.shared.dependencies import CurrentUser
 from app.shared.schemas import CollectionResponse
 
@@ -33,3 +33,21 @@ def groups(
     result = service.get_groups(user.id)
     collection_response = CollectionResponse[GroupRead](items=result)
     return collection_response
+
+
+@router.patch("/{group_id}")
+def update_group(
+    payload: UpdateGroupRequest,
+    service: AccountGroupServiceDep,
+    membership: CurrentMembership,
+) -> GroupRead:
+    """Edición de un grupo"""
+
+    fields_set = payload.model_fields_set
+    update_group_command = UpdateAccountGroupCommand(
+        name=payload.name if "name" in fields_set else None,
+        color=payload.color if "color" in fields_set else None,
+        icon=payload.icon if "icon" in fields_set else None,
+        is_active=payload.is_active if "is_active" in fields_set else None,
+    )
+    return service.update_group(membership, update_group_command)

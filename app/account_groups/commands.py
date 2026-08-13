@@ -12,6 +12,14 @@ class AccountGroupCommand:
 
 
 @dataclass
+class UpdateAccountGroupCommand:
+    name: str | None
+    color: str | None
+    icon: str | None
+    is_active: bool | None
+
+
+@dataclass
 class AccountGroupMemberCommand:
     group_id: uuid.UUID
     user_id: uuid.UUID

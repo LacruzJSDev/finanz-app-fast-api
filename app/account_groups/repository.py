@@ -1,10 +1,14 @@
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session, selectinload
 
-from app.account_groups.commands import AccountGroupCommand, AccountGroupMemberCommand
+from app.account_groups.commands import (
+    AccountGroupCommand,
+    AccountGroupMemberCommand,
+    UpdateAccountGroupCommand,
+)
 from app.account_groups.models import AccountGroup, AccountGroupMember
 
 
@@ -39,6 +43,39 @@ class AccountGroupsRepository:
         )
         return list(account_groups)
 
+    def update_group(
+        self, membership: AccountGroupMember, group: UpdateAccountGroupCommand
+    ) -> AccountGroup:
+        # None aquí significa "no lo mandó el cliente" (ver UpdateGroupRequest /
+        # router.py), no "bórralo" — así que solo se incluyen en el UPDATE las
+        # columnas que sí llegaron. Un UPDATE parcial no tiene una forma fija
+        # de antemano, así que el dict no puede evitarse aquí como sí se hace
+        # en create_account_group.
+        values: dict[str, str | bool] = {}
+        if group.name is not None:
+            values["name"] = group.name
+        if group.color is not None:
+            values["color"] = group.color
+        if group.icon is not None:
+            values["icon"] = group.icon
+        if group.is_active is not None:
+            values["is_active"] = group.is_active
+
+        # Un PATCH sin ningún campo es un no-op válido, no un error — pero un
+        # UPDATE sin columnas en el SET es un error de sintaxis SQL, así que
+        # hay que cortar aquí y devolver el grupo tal cual está.
+        if not values:
+            return self.db.execute(
+                select(AccountGroup).where(AccountGroup.id == membership.group_id)
+            ).scalar_one()
+
+        return self.db.execute(
+            update(AccountGroup)
+            .where(AccountGroup.id == membership.group_id)
+            .values(**values)
+            .returning(AccountGroup)
+        ).scalar_one()
+
 
 @dataclass
 class AccountGroupMemberRepository:
@@ -57,3 +94,13 @@ class AccountGroupMemberRepository:
         self.db.add(account_group_member)
         self.db.flush()
         return account_group_member
+
+    def get_membership(
+        self, group_id: uuid.UUID, user_id: uuid.UUID
+    ) -> AccountGroupMember | None:
+        return self.db.execute(
+            select(AccountGroupMember).where(
+                AccountGroupMember.group_id == group_id,
+                AccountGroupMember.user_id == user_id,
+            )
+        ).scalar_one_or_none()

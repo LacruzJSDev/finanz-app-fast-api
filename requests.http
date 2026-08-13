@@ -87,3 +87,52 @@ Content-Type: application/json
 
 ### Obtain all groups for authenticated user
 GET {{baseUrl}}/api/v1/account-groups/
+
+### Update group
+### Sustituye {{groupId}} por el id que te devuelva un Create group anterior.
+@groupId = 00000000-0000-0000-0000-000000000000
+
+### Update group (solo name, color/icon no deben perderse)
+PATCH {{baseUrl}}/api/v1/account-groups/{{groupId}}
+Content-Type: application/json
+
+{
+    "name": "Nuevo Nombre De Grupo"
+}
+
+### Update group (todos los campos)
+PATCH {{baseUrl}}/api/v1/account-groups/{{groupId}}
+Content-Type: application/json
+
+{
+    "name": "Nuevo Nombre De Grupo",
+    "color": "#000000",
+    "icon": "wallet",
+    "is_active": false
+}
+
+### Update group (cuerpo vacío, no debe tocar nada)
+PATCH {{baseUrl}}/api/v1/account-groups/{{groupId}}
+Content-Type: application/json
+
+{}
+
+### Update group (sin autenticar, debe devolver 401)
+PATCH {{baseUrl}}/api/v1/account-groups/{{groupId}}
+Content-Type: application/json
+
+{
+    "name": "No Deberia Aplicarse"
+}
+
+### Update group (usuario autenticado pero no miembro del grupo, debe devolver 403)
+PATCH {{baseUrl}}/api/v1/account-groups/{{groupId}}
+Content-Type: application/json
+
+{
+    "name": "No Deberia Aplicarse"
+}
+
+### Pendiente de probar por HTTP: un miembro con role='member' (no owner/admin)
+### también debe recibir 403 al editar. No hay todavía endpoint de invitaciones
+### para meter a un segundo usuario como 'member' sin tocar la base de datos a mano.
