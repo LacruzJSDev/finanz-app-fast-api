@@ -61,14 +61,6 @@ class AccountGroupsRepository:
         if group.is_active is not None:
             values["is_active"] = group.is_active
 
-        # Un PATCH sin ningún campo es un no-op válido, no un error — pero un
-        # UPDATE sin columnas en el SET es un error de sintaxis SQL, así que
-        # hay que cortar aquí y devolver el grupo tal cual está.
-        if not values:
-            return self.db.execute(
-                select(AccountGroup).where(AccountGroup.id == membership.group_id)
-            ).scalar_one()
-
         return self.db.execute(
             update(AccountGroup)
             .where(AccountGroup.id == membership.group_id)

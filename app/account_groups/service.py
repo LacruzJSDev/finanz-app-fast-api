@@ -16,6 +16,7 @@ from app.account_groups.repository import (
     AccountGroupsRepository,
 )
 from app.account_groups.schemas import GroupMemberRead, GroupRead
+from app.shared.exceptions import BadRequestError
 from app.users.repository import UserRepository
 
 
@@ -79,5 +80,9 @@ class AccountGroupService:
     def update_group(
         self, membership: AccountGroupMember, group: UpdateAccountGroupCommand
     ) -> GroupRead:
+        fields = (group.name, group.color, group.icon, group.is_active)
+        if all(field is None for field in fields):
+            raise BadRequestError("Debes incluir al menos un campo para actualizar")
+
         group = self.account_group_repo.update_group(membership, group)
         return self._to_group_read(group)

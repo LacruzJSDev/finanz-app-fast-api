@@ -111,7 +111,7 @@ Content-Type: application/json
     "is_active": false
 }
 
-### Update group (cuerpo vacío, no debe tocar nada)
+### Update group (cuerpo vacío, debe devolver 400)
 PATCH {{baseUrl}}/api/v1/account-groups/{{groupId}}
 Content-Type: application/json
 
