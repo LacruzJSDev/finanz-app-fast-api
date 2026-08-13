@@ -9,7 +9,11 @@ from app.account_groups.commands import (
     AccountGroupMemberCommand,
     UpdateAccountGroupCommand,
 )
-from app.account_groups.models import AccountGroup, AccountGroupMember
+from app.account_groups.models import (
+    AccountGroup,
+    AccountGroupMember,
+    AccountGroupMemberRoleEnum,
+)
 
 
 @dataclass
@@ -110,3 +114,16 @@ class AccountGroupMemberRepository:
             .all()
         )
         return list(account_group_members)
+
+    def change_group_member_role(
+        self, group_id: uuid.UUID, user_id: uuid.UUID, role: AccountGroupMemberRoleEnum
+    ) -> AccountGroupMember:
+        return self.db.execute(
+            update(AccountGroupMember)
+            .where(
+                AccountGroupMember.group_id == group_id,
+                AccountGroupMember.user_id == user_id,
+            )
+            .values(role=role)
+            .returning(AccountGroupMember)
+        ).scalar_one()

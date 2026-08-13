@@ -24,6 +24,12 @@ class UpdateGroupRequest(BaseModel):
     is_active: bool | None = Field(default=None)
 
 
+class ChangeGroupMemberRoleRequest(BaseModel):
+    """Cuerpo de PATCH /account-groups/{group_id}/members/{user_id}"""
+
+    role: AccountGroupMemberRoleEnum
+
+
 class GroupMemberRead(BaseModel):
     """Representación pública de un miembro grupo en las respuestas de la API."""
 

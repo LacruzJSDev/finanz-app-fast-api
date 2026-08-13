@@ -60,6 +60,15 @@ def require_group_role(
     return verify_group_membership
 
 
+RequireOwner = Annotated[
+    AccountGroupMember,
+    Depends(
+        require_group_role(
+            AccountGroupMemberRoleEnum.OWNER,
+        )
+    ),
+]
+
 RequireOwnerOrAdmin = Annotated[
     AccountGroupMember,
     Depends(

@@ -16,7 +16,7 @@ from app.account_groups.repository import (
     AccountGroupsRepository,
 )
 from app.account_groups.schemas import GroupMemberRead, GroupRead
-from app.shared.exceptions import BadRequestError
+from app.shared.exceptions import BadRequestError, ConflictError
 from app.users.models import User
 from app.users.repository import UserRepository
 
@@ -42,9 +42,8 @@ class AccountGroupService:
         )
 
     def _to_group_member_read(
-        self, group_member: AccountGroupMember, users_by_id: dict[uuid.UUID, User]
+        self, group_member: AccountGroupMember, user: User
     ) -> GroupMemberRead:
-        user = users_by_id[group_member.user_id]
         return GroupMemberRead(
             id=group_member.id,
             user_id=group_member.user_id,
@@ -78,7 +77,7 @@ class AccountGroupService:
         for group in groups:
             group_read = self._to_group_read(group)
             group_read.members = [
-                self._to_group_member_read(member, users_by_id)
+                self._to_group_member_read(member, users_by_id[member.user_id])
                 for member in group.members
             ]
             groups_read.append(group_read)
@@ -101,7 +100,26 @@ class AccountGroupService:
         users_by_id = {user.id: user for user in users}
         members_read: list[GroupMemberRead] = []
         for member in members:
-            member_read = self._to_group_member_read(member, users_by_id)
+            member_read = self._to_group_member_read(
+                member, users_by_id[member.user_id]
+            )
             members_read.append(member_read)
 
         return members_read
+
+    def change_group_member_role(
+        self, group_id: uuid.UUID, user_id: uuid.UUID, role: AccountGroupMemberRoleEnum
+    ) -> GroupMemberRead:
+        members = self.get_group_members(group_id)
+        members_roles = {member.role for member in members if member.user_id != user_id}
+        members_roles.add(role)
+        if AccountGroupMemberRoleEnum.OWNER not in members_roles:
+            raise ConflictError("No pueden eliminarse todos los propietarios")
+        member = self.account_group_member_repo.change_group_member_role(
+            group_id, user_id, role
+        )
+        user = self.user_repo.get_user_by_id(member.user_id)
+        if user is None:
+            raise ConflictError("El miembro del grupo no existe")
+        member_read = self._to_group_member_read(member, user)
+        return member_read

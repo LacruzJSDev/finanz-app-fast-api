@@ -6,9 +6,11 @@ from app.account_groups.commands import AccountGroupCommand, UpdateAccountGroupC
 from app.account_groups.dependencies import (
     AccountGroupServiceDep,
     RequireMembership,
+    RequireOwner,
     RequireOwnerOrAdmin,
 )
 from app.account_groups.schemas import (
+    ChangeGroupMemberRoleRequest,
     CreateGroupRequest,
     GroupMemberRead,
     GroupRead,
@@ -72,3 +74,14 @@ def get_group_members(
     result = service.get_group_members(group_id)
     collection_response = CollectionResponse[GroupMemberRead](items=result)
     return collection_response
+
+
+@router.patch("/{group_id}/members/{user_id}")
+def change_group_member_role(
+    payload: ChangeGroupMemberRoleRequest,
+    service: AccountGroupServiceDep,
+    group_id: uuid.UUID,
+    user_id: uuid.UUID,
+    membership: RequireOwner,
+) -> GroupMemberRead:
+    return service.change_group_member_role(group_id, user_id, payload.role)
