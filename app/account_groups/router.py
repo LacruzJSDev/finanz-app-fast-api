@@ -1,8 +1,19 @@
+import uuid
+
 from fastapi import APIRouter, status
 
 from app.account_groups.commands import AccountGroupCommand, UpdateAccountGroupCommand
-from app.account_groups.dependencies import AccountGroupServiceDep, CurrentMembership
-from app.account_groups.schemas import CreateGroupRequest, GroupRead, UpdateGroupRequest
+from app.account_groups.dependencies import (
+    AccountGroupServiceDep,
+    RequireMembership,
+    RequireOwnerOrAdmin,
+)
+from app.account_groups.schemas import (
+    CreateGroupRequest,
+    GroupMemberRead,
+    GroupRead,
+    UpdateGroupRequest,
+)
 from app.shared.dependencies import CurrentUser
 from app.shared.schemas import CollectionResponse
 
@@ -39,7 +50,7 @@ def groups(
 def update_group(
     payload: UpdateGroupRequest,
     service: AccountGroupServiceDep,
-    membership: CurrentMembership,
+    membership: RequireOwnerOrAdmin,
 ) -> GroupRead:
     """Edición de un grupo"""
 
@@ -51,3 +62,13 @@ def update_group(
         is_active=payload.is_active if "is_active" in fields_set else None,
     )
     return service.update_group(membership, update_group_command)
+
+
+@router.get("/{group_id}/members")
+def get_group_members(
+    service: AccountGroupServiceDep, group_id: uuid.UUID, membership: RequireMembership
+) -> CollectionResponse[GroupMemberRead]:
+    """Obtiene los miembros de un grupo de cuentas"""
+    result = service.get_group_members(group_id)
+    collection_response = CollectionResponse[GroupMemberRead](items=result)
+    return collection_response

@@ -17,6 +17,7 @@ from app.account_groups.repository import (
 )
 from app.account_groups.schemas import GroupMemberRead, GroupRead
 from app.shared.exceptions import BadRequestError
+from app.users.models import User
 from app.users.repository import UserRepository
 
 
@@ -38,6 +39,20 @@ class AccountGroupService:
             created_at=group.created_at,
             updated_at=group.updated_at,
             members=[],
+        )
+
+    def _to_group_member_read(
+        self, group_member: AccountGroupMember, users_by_id: dict[uuid.UUID, User]
+    ) -> GroupMemberRead:
+        user = users_by_id[group_member.user_id]
+        return GroupMemberRead(
+            id=group_member.id,
+            user_id=group_member.user_id,
+            role=group_member.role,
+            name=user.name,
+            email=user.email,
+            created_at=group_member.created_at,
+            updated_at=group_member.updated_at,
         )
 
     def create_group(self, user_id: uuid.UUID, group: AccountGroupCommand) -> GroupRead:
@@ -63,15 +78,7 @@ class AccountGroupService:
         for group in groups:
             group_read = self._to_group_read(group)
             group_read.members = [
-                GroupMemberRead(
-                    id=member.id,
-                    user_id=member.user_id,
-                    role=member.role,
-                    name=users_by_id[member.user_id].name,
-                    email=users_by_id[member.user_id].email,
-                    created_at=member.created_at,
-                    updated_at=member.updated_at,
-                )
+                self._to_group_member_read(member, users_by_id)
                 for member in group.members
             ]
             groups_read.append(group_read)
@@ -86,3 +93,15 @@ class AccountGroupService:
 
         group = self.account_group_repo.update_group(membership, group)
         return self._to_group_read(group)
+
+    def get_group_members(self, group_id: uuid.UUID) -> list[GroupMemberRead]:
+        members = self.account_group_member_repo.get_group_members_by_group_id(group_id)
+        user_ids = {member.user_id for member in members}
+        users = self.user_repo.get_users_by_ids(user_ids)
+        users_by_id = {user.id: user for user in users}
+        members_read: list[GroupMemberRead] = []
+        for member in members:
+            member_read = self._to_group_member_read(member, users_by_id)
+            members_read.append(member_read)
+
+        return members_read

@@ -96,3 +96,17 @@ class AccountGroupMemberRepository:
                 AccountGroupMember.user_id == user_id,
             )
         ).scalar_one_or_none()
+
+    def get_group_members_by_group_id(
+        self, group_id: uuid.UUID
+    ) -> list[AccountGroupMember]:
+        account_group_members = (
+            self.db.execute(
+                select(AccountGroupMember).where(
+                    AccountGroupMember.group_id == group_id
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return list(account_group_members)
