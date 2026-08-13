@@ -16,7 +16,7 @@ from app.account_groups.repository import (
     AccountGroupsRepository,
 )
 from app.account_groups.schemas import GroupMemberRead, GroupRead
-from app.shared.exceptions import BadRequestError, ConflictError
+from app.shared.exceptions import BadRequestError, ConflictError, ForbiddenError
 from app.users.models import User
 from app.users.repository import UserRepository
 
@@ -123,3 +123,35 @@ class AccountGroupService:
             raise ConflictError("El miembro del grupo no existe")
         member_read = self._to_group_member_read(member, user)
         return member_read
+
+    def expel_group_member(
+        self,
+        group_id: uuid.UUID,
+        expeled_user_id: uuid.UUID,
+        request_user_id: uuid.UUID,
+    ) -> None:
+        members = self.get_group_members(group_id)
+        members_by_user_id = {member.user_id: member for member in members}
+
+        remaining_roles = {
+            member.role for member in members if member.user_id != expeled_user_id
+        }
+        if AccountGroupMemberRoleEnum.OWNER not in remaining_roles:
+            raise ConflictError("No pueden eliminarse todos los propietarios")
+
+        is_self_removal = request_user_id == expeled_user_id
+        if not is_self_removal:
+            requester_role = members_by_user_id[request_user_id].role
+            target_role = members_by_user_id[expeled_user_id].role
+
+            if requester_role == AccountGroupMemberRoleEnum.MEMBER:
+                raise ForbiddenError("No tienes permiso para expulsar miembros")
+            if (
+                requester_role == AccountGroupMemberRoleEnum.ADMIN
+                and target_role == AccountGroupMemberRoleEnum.OWNER
+            ):
+                raise ForbiddenError(
+                    "Un administrador no puede expulsar a un propietario"
+                )
+
+        self.account_group_member_repo.delete_group_member(group_id, expeled_user_id)

@@ -1,7 +1,7 @@
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.account_groups.commands import (
@@ -127,3 +127,11 @@ class AccountGroupMemberRepository:
             .values(role=role)
             .returning(AccountGroupMember)
         ).scalar_one()
+
+    def delete_group_member(self, group_id: uuid.UUID, user_id: uuid.UUID) -> None:
+        self.db.execute(
+            delete(AccountGroupMember).where(
+                AccountGroupMember.group_id == group_id,
+                AccountGroupMember.user_id == user_id,
+            )
+        )

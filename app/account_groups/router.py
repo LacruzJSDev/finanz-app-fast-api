@@ -85,3 +85,15 @@ def change_group_member_role(
     membership: RequireOwner,
 ) -> GroupMemberRead:
     return service.change_group_member_role(group_id, user_id, payload.role)
+
+
+@router.delete("/{group_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def expel_group_member(
+    service: AccountGroupServiceDep,
+    group_id: uuid.UUID,
+    user_id: uuid.UUID,
+    user: CurrentUser,
+    membership: RequireMembership,
+) -> None:
+    service.expel_group_member(group_id, user_id, user.id)
+    return
