@@ -4,3 +4,9 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "T20"]  # errores, pyflakes, orden de imports, prints olvidados
+
+[tool.pyright]
+typeCheckingMode = "strict"
+venvPath = "."
+venv = "venv"
+include = ["app"]

@@ -55,9 +55,9 @@ class AccountGroupService:
         )
 
     def create_group(self, user_id: uuid.UUID, group: AccountGroupCommand) -> GroupRead:
-        group = self.account_group_repo.create_account_group(group)
+        account_group = self.account_group_repo.create_account_group(group)
         account_group_member_command = AccountGroupMemberCommand(
-            group_id=group.id,
+            group_id=account_group.id,
             user_id=user_id,
             role=AccountGroupMemberRoleEnum.OWNER,
         )
@@ -66,7 +66,7 @@ class AccountGroupService:
             account_group_member_command
         )
 
-        return self._to_group_read(group)
+        return self._to_group_read(account_group)
 
     def get_groups(self, user_id: uuid.UUID) -> list[GroupRead]:
         groups = self.account_group_repo.get_groups_by_user_id(user_id)
@@ -90,8 +90,8 @@ class AccountGroupService:
         if all(field is None for field in fields):
             raise BadRequestError("Debes incluir al menos un campo para actualizar")
 
-        group = self.account_group_repo.update_group(membership, group)
-        return self._to_group_read(group)
+        account_group = self.account_group_repo.update_group(membership, group)
+        return self._to_group_read(account_group)
 
     def get_group_members(self, group_id: uuid.UUID) -> list[GroupMemberRead]:
         members = self.account_group_member_repo.get_group_members_by_group_id(group_id)

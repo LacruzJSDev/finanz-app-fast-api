@@ -2,7 +2,7 @@ import enum
 from collections.abc import Generator
 
 from sqlalchemy import MetaData, create_engine
-from sqlalchemy.orm import Session, declarative_base, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.config import settings
 
@@ -38,7 +38,15 @@ engine = create_engine(
     pool_pre_ping=True,
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base(metadata=MetaData(naming_convention=naming_convention))
+
+
+class Base(DeclarativeBase):
+    # declarative_base() (la función clásica) no tiene tipado propio: pyright
+    # la ve como Any, y con ella cualquier modelo que herede de Base —
+    # User, AccountGroup...— arrastra ese Any, silenciando comprobaciones
+    # como pasar un Modelo | None donde se espera un Modelo. DeclarativeBase
+    # es la clase tipada equivalente desde SQLAlchemy 2.0.
+    metadata = MetaData(naming_convention=naming_convention)
 
 
 def get_db() -> Generator[Session, None, None]:
