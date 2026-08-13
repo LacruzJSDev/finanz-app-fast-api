@@ -8,6 +8,8 @@ from app.account_groups.repository import (
 )
 from app.account_groups.service import AccountGroupService
 from app.shared.dependencies import DbSession
+from app.users.dependencies import get_user_repository
+from app.users.repository import UserRepository
 
 
 def get_account_group_repository(db: DbSession) -> AccountGroupsRepository:
@@ -25,8 +27,9 @@ def get_account_group_service(
     account_group_member_repo: Annotated[
         AccountGroupMemberRepository, Depends(get_account_group_member_repository)
     ],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
 ) -> AccountGroupService:
-    return AccountGroupService(account_group_repo, account_group_member_repo)
+    return AccountGroupService(account_group_repo, account_group_member_repo, user_repo)
 
 
 AccountGroupServiceDep = Annotated[

@@ -32,3 +32,10 @@ class UserRepository:
         return self.db.execute(
             select(User).where(User.id == user_id)
         ).scalar_one_or_none()
+
+    def get_users_by_ids(self, user_ids: set[uuid.UUID]) -> list[User]:
+        users = (
+            self.db.execute(select(User).where(User.id.in_(user_ids))).scalars().all()
+        )
+
+        return list(users)

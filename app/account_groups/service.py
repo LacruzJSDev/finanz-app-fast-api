@@ -8,6 +8,7 @@ from app.account_groups.repository import (
     AccountGroupsRepository,
 )
 from app.account_groups.schemas import GroupMemberRead, GroupRead
+from app.users.repository import UserRepository
 
 
 @dataclass
@@ -16,20 +17,58 @@ class AccountGroupService:
 
     account_group_repo: AccountGroupsRepository
     account_group_member_repo: AccountGroupMemberRepository
+    user_repo: UserRepository
 
     def create_group(self, user_id: uuid.UUID, group: AccountGroupCommand) -> GroupRead:
-        account_group = self.account_group_repo.create_account_group(group)
+        group = self.account_group_repo.create_account_group(group)
         account_group_member_command = AccountGroupMemberCommand(
-            group_id=account_group.id,
+            group_id=group.id,
             user_id=user_id,
             role=AccountGroupMemberRoleEnum.OWNER,
         )
-        account_group_member = (
-            self.account_group_member_repo.create_account_group_member(
-                account_group_member_command
-            )
+
+        self.account_group_member_repo.create_account_group_member(
+            account_group_member_command
         )
 
-        group_read = GroupRead.model_validate(account_group)
-        group_read.members = [GroupMemberRead.model_validate(account_group_member)]
+        group_read = GroupRead(
+            id=group.id,
+            name=group.name,
+            color=group.color,
+            icon=group.icon,
+            created_at=group.created_at,
+            updated_at=group.updated_at,
+            members=[],
+        )
         return group_read
+
+    def get_groups(self, user_id: uuid.UUID) -> list[GroupRead]:
+        groups = self.account_group_repo.get_groups_by_user_id(user_id)
+        user_ids = {member.user_id for group in groups for member in group.members}
+        users = self.user_repo.get_users_by_ids(user_ids)
+        users_by_id = {user.id: user for user in users}
+        groups_read: list[GroupRead] = []
+        for group in groups:
+            group_read = GroupRead(
+                id=group.id,
+                name=group.name,
+                color=group.color,
+                icon=group.icon,
+                created_at=group.created_at,
+                updated_at=group.updated_at,
+                members=[],
+            )
+            group_read.members = [
+                GroupMemberRead(
+                    id=member.id,
+                    user_id=member.user_id,
+                    role=member.role,
+                    name=users_by_id[member.user_id].name,
+                    email=users_by_id[member.user_id].email,
+                    created_at=member.created_at,
+                    updated_at=member.updated_at,
+                )
+                for member in group.members
+            ]
+            groups_read.append(group_read)
+        return groups_read

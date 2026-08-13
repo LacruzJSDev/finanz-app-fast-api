@@ -12,7 +12,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, enum_values
 
@@ -46,6 +46,7 @@ class AccountGroup(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    members: Mapped[list["AccountGroupMember"]] = relationship(back_populates="group")
 
 
 class AccountGroupMember(Base):
@@ -84,3 +85,5 @@ class AccountGroupMember(Base):
     )
 
     __table_args__ = (UniqueConstraint("group_id", "user_id", name="uq_group_member"),)
+
+    group: Mapped["AccountGroup"] = relationship(back_populates="members")

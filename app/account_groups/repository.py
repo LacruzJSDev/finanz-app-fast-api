@@ -1,6 +1,8 @@
+import uuid
 from dataclasses import dataclass
 
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
 
 from app.account_groups.commands import AccountGroupCommand, AccountGroupMemberCommand
 from app.account_groups.models import AccountGroup, AccountGroupMember
@@ -19,6 +21,23 @@ class AccountGroupsRepository:
         self.db.add(account_group)
         self.db.flush()
         return account_group
+
+    def get_groups_by_user_id(self, user_id: uuid.UUID) -> list[AccountGroup]:
+        account_groups = (
+            self.db.execute(
+                select(AccountGroup)
+                .join(AccountGroupMember)
+                .where(AccountGroupMember.user_id == user_id)
+                .options(
+                    selectinload(
+                        AccountGroup.members.and_(AccountGroupMember.user_id != user_id)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return list(account_groups)
 
 
 @dataclass
