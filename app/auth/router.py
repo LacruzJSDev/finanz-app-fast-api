@@ -58,7 +58,7 @@ def login(
     return result.user
 
 
-@router.post("/register")
+@router.post("/register", status_code=status.HTTP_201_CREATED)
 def register(
     payload: RegisterRequest, service: AuthServiceDep, response: Response
 ) -> UserRead:
