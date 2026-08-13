@@ -9,4 +9,4 @@ select = ["E", "F", "I", "T20"]  # errores, pyflakes, orden de imports, prints o
 typeCheckingMode = "strict"
 venvPath = "."
 venv = "venv"
-include = ["app"]
+include = ["app", "alembic"]

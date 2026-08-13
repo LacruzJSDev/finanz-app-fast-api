@@ -25,6 +25,14 @@ class AccountGroupMemberRoleEnum(str, enum.Enum):
     MEMBER = "member"
 
 
+class InvitationStatusEnum(str, enum.Enum):
+    """Estados de las invitaciones"""
+
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    EXPIRED = "expired"
+
+
 class AccountGroup(Base):
     """Grupos de cuentas. Agrupa cuentas, categorías y
     transacciones bajo un mismo espacio compartido"""
@@ -87,3 +95,54 @@ class AccountGroupMember(Base):
     __table_args__ = (UniqueConstraint("group_id", "user_id", name="uq_group_member"),)
 
     group: Mapped["AccountGroup"] = relationship(back_populates="members")
+
+
+class Invitation(Base):
+    """Invitaciones a un grupo de cuentas"""
+
+    __tablename__ = "invitations"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    group_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("account_groups.id", ondelete="CASCADE"),
+        index=True,
+    )
+    invited_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    role: Mapped[AccountGroupMemberRoleEnum] = mapped_column(
+        Enum(
+            AccountGroupMemberRoleEnum,
+            name="role_enum",
+            values_callable=enum_values,
+        ),
+        server_default=text("'member'"),
+    )
+    code: Mapped[str] = mapped_column(
+        String(20), unique=True, nullable=False, index=True
+    )
+    status: Mapped[InvitationStatusEnum] = mapped_column(
+        Enum(
+            InvitationStatusEnum,
+            name="status_enum",
+            values_callable=enum_values,
+        ),
+        server_default=text("'pending'"),
+    )
+    accepted_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
