@@ -19,13 +19,13 @@ Todos los endpoints exigen autenticación (`get_current_user`) y pertenencia al 
 
 ## 4. Endpoints
 
-Prefijo de recurso: `/api/v1/accounts` — a propósito **no** anidado bajo `/account-groups/{group_id}/...`, a diferencia de `members`/`invitations` en ese dominio. Una cuenta se identifica y se opera sobre ella por su propio `id` en el resto de la API (`ARCHITECTURE.md` §8.1 ya usa `GET /api/v1/accounts/{account_id}/transactions` como referencia), así que tiene su propio espacio de nombres de nivel superior; el `group_id` viaja en el cuerpo al crear, y se resuelve a partir de la cuenta en el resto de operaciones.
+Prefijo de recurso: `/api/v1/accounts` — a propósito **no** anidado bajo `/account-groups/{group_id}/...`: mezclar el prefijo de otro dominio en la URL de `accounts` no refleja bien de qué API es cada recurso, aunque ambos endpoints de colección (`POST`, `GET`) sí necesitan `group_id` para autorizar. Se resuelve con `group_id` como **query param**, no como segmento de ruta ni en el body — así la dependencia de autorización (`RequireOwnerOrAdmin`/`RequireMembership`, ver `account_groups.md`) lo resuelve igual que ya hace con cualquier otra ruta, sin necesitar código de autorización propio de este dominio. Los endpoints con `{account_id}` en la ruta lo resuelven de otra forma (ver más abajo), porque ya no hace falta que el cliente indique el grupo por separado.
 
-### `POST /api/v1/accounts`
+### `POST /api/v1/accounts?group_id={group_id}`
 
-Requiere rol `owner` o `admin` en el grupo indicado en `group_id`.
+Requiere rol `owner` o `admin` en `group_id`.
 
-- **Entrada**: `group_id`, `name`, `type` (opcional, por defecto `bank`), `opening_balance` (opcional, por defecto `0`), `currency` (opcional, por defecto `EUR`), `color` (opcional), `icon` (opcional).
+- **Entrada** (body): `name`, `type` (opcional, por defecto `bank`), `opening_balance` (opcional, por defecto `0`), `currency` (opcional, por defecto `EUR`), `color` (opcional), `icon` (opcional). `group_id` no va en el body, va en la query string (ver más arriba).
 - **Efecto**: crea la cuenta. `balance` nace igual a `opening_balance` — lo impone un trigger de base de datos (`trg_init_account_balance`), no la aplicación; el campo `balance` no se acepta como entrada porque no es un dato de origen, es derivado desde el primer instante.
 - **Salida**: la cuenta creada.
 - **Errores**: `403` si el usuario no pertenece a `group_id`, o pertenece pero con rol `member`. `409` si `currency` no coincide con la divisa ya establecida por otras cuentas activas del grupo (ver regla de negocio).
