@@ -14,6 +14,7 @@ Todos los endpoints exigen autenticación (`get_current_user`) y, salvo la creac
 
 - Un usuario autenticado crea un grupo nuevo y pasa a ser su `owner`.
 - Un miembro con rol `owner` o `admin` invita a otro usuario al grupo, generando un código.
+- Un usuario autenticado consulta una invitación por su código para ver quién le invitó, a qué grupo y con qué rol, antes de decidir si la acepta.
 - Un usuario autenticado acepta una invitación mediante su código y pasa a ser miembro con el rol indicado en la invitación.
 - Un miembro consulta los grupos a los que pertenece y los miembros de un grupo concreto.
 - Un miembro con rol suficiente actualiza los datos del grupo (nombre, color, icono) o lo archiva.
@@ -70,12 +71,20 @@ Requiere rol `owner` o `admin`.
 - **Efecto**: crea una fila en `invitations` con un `code` aleatorio y `expires_at` (ver sección 5 para la duración).
 - **Salida**: la invitación, incluido `code` — es responsabilidad del cliente comunicárselo a la persona invitada, fuera del alcance de este dominio (no hay envío de email en v1, ver sección 6).
 
-### `POST /api/v1/account-groups/invitations/{code}/accept`
+### `GET /api/v1/account-groups/invitations/{code}`
+
+Requiere autenticación, no pertenencia previa al grupo.
+
+- **Salida**: la invitación — grupo, quién invitó, rol ofrecido y `status`. Permite al cliente mostrar "X te ha invitado a Y" antes de que el usuario decida aceptar, y de paso resolver el `group_id` que necesita para llamar al endpoint de aceptar (ver más abajo), ya que quien recibe el enlace de invitación solo tiene el `code`.
+- **Efecto**: si `expires_at` ya pasó, o si el usuario que invitó ha borrado su cuenta desde entonces (`invited_by` es `NULL` — ver sección 5 sobre `ON DELETE SET NULL`), la invitación se marca `expired` en este mismo momento, de forma perezosa (no hay ningún proceso en segundo plano que recorra invitaciones caducadas). `invited_by` no borra la fila (se preserva el histórico), pero deja la invitación tan inutilizable como si hubiera caducado por tiempo — no tiene sentido unirse a un grupo por una invitación de alguien que ya no está; el invitado tiene que pedir un código nuevo a otro miembro.
+- **Errores**: `404` si el código no existe. Una invitación `accepted` o expirada (por tiempo o por invitador borrado) **no** es un error aquí — es una simple consulta, no un cambio de estado, así que se devuelve igual que cualquier otra, con su `status` real en el cuerpo (`invited_by: null` si el invitador ya no existe); es responsabilidad del cliente decidir qué mostrar (por ejemplo, "esta invitación ya expiró") en vez de dejar que lo intente aceptar.
+
+### `POST /api/v1/account-groups/{group_id}/invitations/{code}/accept`
 
 Requiere autenticación, no pertenencia previa al grupo.
 
 - **Efecto**: valida que la invitación exista, esté `pending` y no haya expirado; crea la fila en `account_group_members` con el rol de la invitación; marca la invitación como `accepted`, con `accepted_by` y `accepted_at`.
-- **Errores**: `404` si el código no existe. `409` si ya está `accepted` o expirada (transición de estado inválida, no un problema de autorización — por eso `409` y no `403`/`401`).
+- **Errores**: `404` si el código no existe. `409` si ya está `accepted` o expirada (transición de estado inválida, no un problema de autorización — por eso `409` y no `403`/`401`). A diferencia del resto de endpoints anidados bajo `{group_id}`, aquí el `code` por sí solo ya identifica la invitación sin ambigüedad — `group_id` en la ruta es solo por consistencia con el resto del dominio, el cliente lo obtiene primero con el `GET` de arriba.
 
 ## 5. Reglas de negocio
 
@@ -97,6 +106,8 @@ Requiere autenticación, no pertenencia previa al grupo.
 ## 7. Criterios de aceptación
 
 - Crear un grupo crea también, en la misma operación, la fila de `account_group_members` con `role = 'owner'` para quien lo creó.
+- Consultar una invitación con un código inexistente devuelve `404`; con un código válido pero ya `accepted` o expirado, devuelve `200` con el `status` real, no un error.
+- Consultar una invitación `pending` cuyo `invited_by` ha borrado su cuenta la marca `expired` en ese momento y la devuelve con `invited_by: null`, sin dar ningún error.
 - Aceptar una invitación con un código inexistente devuelve `404`.
 - Aceptar una invitación ya aceptada, o una con `expires_at` en el pasado, devuelve `409`, sin crear una fila de pertenencia.
 - Intentar que el único `owner` de un grupo con otros miembros lo abandone, sea eliminado, o cambie su propio rol, devuelve `409`, sin aplicar el cambio.

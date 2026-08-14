@@ -15,6 +15,7 @@ from app.account_groups.models import (
     AccountGroupMember,
     AccountGroupMemberRoleEnum,
     Invitation,
+    InvitationStatusEnum,
 )
 
 
@@ -156,3 +157,22 @@ class InvitationRepository:
         self.db.add(invitation)
         self.db.flush()
         return invitation
+
+    def get_invitation_by_code(self, code: str) -> Invitation | None:
+        invitation = self.db.execute(
+            select(Invitation).where(Invitation.code == code)
+        ).scalar_one_or_none()
+        return invitation
+
+    def expire_invitation_by_id(
+        self,
+        invitation_id: uuid.UUID,
+    ) -> Invitation:
+        return self.db.execute(
+            update(Invitation)
+            .where(
+                Invitation.id == invitation_id,
+            )
+            .values(status=InvitationStatusEnum.EXPIRED)
+            .returning(Invitation)
+        ).scalar_one()

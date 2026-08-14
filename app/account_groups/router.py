@@ -110,3 +110,11 @@ def create_invitation(
 ) -> InvitationRead:
     result = service.create_invitation(group_id, membership.user_id, payload.role)
     return result
+
+
+@router.get("/invitations/{code}")
+def get_invitation(
+    service: AccountGroupServiceDep, code: str, user: CurrentUser
+) -> InvitationRead:
+    result = service.get_invitation(code)
+    return result

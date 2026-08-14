@@ -13,14 +13,25 @@ from app.account_groups.models import (
     AccountGroup,
     AccountGroupMember,
     AccountGroupMemberRoleEnum,
+    Invitation,
 )
 from app.account_groups.repository import (
     AccountGroupMemberRepository,
     AccountGroupsRepository,
     InvitationRepository,
 )
-from app.account_groups.schemas import GroupMemberRead, GroupRead, InvitationRead
-from app.shared.exceptions import BadRequestError, ConflictError, ForbiddenError
+from app.account_groups.schemas import (
+    GroupMemberRead,
+    GroupRead,
+    InvitationRead,
+    InvitedByRead,
+)
+from app.shared.exceptions import (
+    BadRequestError,
+    ConflictError,
+    ForbiddenError,
+    NotFoundError,
+)
 from app.users.models import User
 from app.users.repository import UserRepository
 
@@ -58,6 +69,24 @@ class AccountGroupService:
             created_at=group_member.created_at,
             updated_at=group_member.updated_at,
         )
+
+    def _to_invitation_read(
+        self, invitation: Invitation, user: User | None
+    ) -> InvitationRead:
+        invited_by = InvitedByRead(name=user.name, email=user.email) if user else None
+        invitation_read = InvitationRead(
+            id=invitation.id,
+            group_id=invitation.group_id,
+            invited_by=invited_by,
+            role=invitation.role,
+            code=invitation.code,
+            status=invitation.status,
+            accepted_by=invitation.accepted_by,
+            accepted_at=invitation.accepted_at,
+            expires_at=invitation.expires_at,
+            created_at=invitation.created_at,
+        )
+        return invitation_read
 
     def create_group(self, user_id: uuid.UUID, group: AccountGroupCommand) -> GroupRead:
         account_group = self.account_group_repo.create_account_group(group)
@@ -178,17 +207,27 @@ class AccountGroupService:
             expires_at=expires_at,
         )
         invitation = self.invitation_repo.create_invitation(invitation_command)
+        if invitation.invited_by is None:
+            raise ConflictError("El usuario que te invitó no existe")
 
-        invitation_read = InvitationRead(
-            id=invitation.id,
-            group_id=invitation.group_id,
-            invited_by=invitation.invited_by,
-            role=invitation.role,
-            code=invitation.code,
-            status=invitation.status,
-            accepted_by=invitation.accepted_by,
-            accepted_at=invitation.accepted_at,
-            expires_at=invitation.expires_at,
-            created_at=invitation.created_at,
-        )
+        invited_by = self.user_repo.get_user_by_id(invitation.invited_by)
+        if invited_by is None:
+            raise ConflictError("El usuario que te invitó no existe")
+
+        invitation_read = self._to_invitation_read(invitation, invited_by)
         return invitation_read
+
+    def get_invitation(self, code: str) -> InvitationRead:
+        invitation = self.invitation_repo.get_invitation_by_code(code)
+        if invitation is None:
+            raise NotFoundError("Invitación no encontrada")
+
+        now = datetime.now(timezone.utc)
+        if invitation.expires_at < now or invitation.invited_by is None:
+            expired_invitation = self.invitation_repo.expire_invitation_by_id(
+                invitation.id
+            )
+            return self._to_invitation_read(expired_invitation, None)
+
+        invited_by = self.user_repo.get_user_by_id(invitation.invited_by)
+        return self._to_invitation_read(invitation, invited_by)

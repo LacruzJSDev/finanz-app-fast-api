@@ -67,6 +67,11 @@ class CreateInvitationRequest(BaseModel):
     role: AccountGroupMemberRoleEnum
 
 
+class InvitedByRead(BaseModel):
+    name: str
+    email: str
+
+
 class InvitationRead(BaseModel):
     """Representación pública de una invitación a un grupo"""
 
@@ -74,7 +79,7 @@ class InvitationRead(BaseModel):
 
     id: uuid.UUID
     group_id: uuid.UUID
-    invited_by: uuid.UUID | None
+    invited_by: InvitedByRead | None
     role: AccountGroupMemberRoleEnum
     code: str
     status: InvitationStatusEnum
