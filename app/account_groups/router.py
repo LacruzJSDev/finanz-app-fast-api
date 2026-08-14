@@ -118,3 +118,14 @@ def get_invitation(
 ) -> InvitationRead:
     result = service.get_invitation(code)
     return result
+
+
+@router.post("/{group_id}/invitations/{invitation_id}/accept")
+def accept_invitation(
+    service: AccountGroupServiceDep,
+    group_id: uuid.UUID,
+    invitation_id: uuid.UUID,
+    user: CurrentUser,
+) -> InvitationRead:
+    result = service.accept_invitation(group_id, user.id, invitation_id)
+    return result

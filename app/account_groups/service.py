@@ -14,6 +14,7 @@ from app.account_groups.models import (
     AccountGroupMember,
     AccountGroupMemberRoleEnum,
     Invitation,
+    InvitationStatusEnum,
 )
 from app.account_groups.repository import (
     AccountGroupMemberRepository,
@@ -231,3 +232,42 @@ class AccountGroupService:
 
         invited_by = self.user_repo.get_user_by_id(invitation.invited_by)
         return self._to_invitation_read(invitation, invited_by)
+
+    def accept_invitation(
+        self, group_id: uuid.UUID, user_id: uuid.UUID, invitation_id: uuid.UUID
+    ) -> InvitationRead:
+        members = self.account_group_member_repo.get_group_members_by_group_id(group_id)
+        members_ids = {member.user_id for member in members}
+        if user_id in members_ids:
+            raise ConflictError("El usuario ya pertenece al grupo")
+
+        invitation = self.invitation_repo.get_invitation_by_id(invitation_id)
+
+        now = datetime.now(timezone.utc)
+        if invitation is None or invitation.group_id != group_id:
+            raise NotFoundError("Invitación no encontrada")
+        if (
+            invitation.expires_at < now
+            or invitation.invited_by is None
+            or invitation.status == InvitationStatusEnum.EXPIRED
+        ):
+            if invitation.status == InvitationStatusEnum.PENDING:
+                self.invitation_repo.expire_invitation_by_id(invitation_id)
+            raise ConflictError("La invitación ha expirado")
+        if invitation.status == InvitationStatusEnum.ACCEPTED:
+            raise ConflictError("La invitación ya ha sido aceptada")
+
+        accepted_invitation = self.invitation_repo.accept_invitation_by_id(
+            invitation_id, now, user_id
+        )
+        invited_by = self.user_repo.get_user_by_id(invitation.invited_by)
+        invitation_read = self._to_invitation_read(accepted_invitation, invited_by)
+        account_group_member_command = AccountGroupMemberCommand(
+            group_id=group_id,
+            user_id=user_id,
+            role=invitation.role,
+        )
+        self.account_group_member_repo.create_account_group_member(
+            account_group_member_command
+        )
+        return invitation_read

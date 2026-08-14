@@ -1,5 +1,6 @@
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session, selectinload
@@ -158,6 +159,12 @@ class InvitationRepository:
         self.db.flush()
         return invitation
 
+    def get_invitation_by_id(self, invitation_id: uuid.UUID) -> Invitation | None:
+        invitation = self.db.execute(
+            select(Invitation).where(Invitation.id == invitation_id)
+        ).scalar_one_or_none()
+        return invitation
+
     def get_invitation_by_code(self, code: str) -> Invitation | None:
         invitation = self.db.execute(
             select(Invitation).where(Invitation.code == code)
@@ -174,5 +181,24 @@ class InvitationRepository:
                 Invitation.id == invitation_id,
             )
             .values(status=InvitationStatusEnum.EXPIRED)
+            .returning(Invitation)
+        ).scalar_one()
+
+    def accept_invitation_by_id(
+        self,
+        invitation_id: uuid.UUID,
+        new_accepted_at: datetime,
+        new_accepted_by: uuid.UUID,
+    ) -> Invitation:
+        return self.db.execute(
+            update(Invitation)
+            .where(
+                Invitation.id == invitation_id,
+            )
+            .values(
+                status=InvitationStatusEnum.ACCEPTED,
+                accepted_at=new_accepted_at,
+                accepted_by=new_accepted_by,
+            )
             .returning(Invitation)
         ).scalar_one()
