@@ -271,7 +271,7 @@ El esquema relacional completo vive versionado mediante migraciones (Alembic) y 
 | `payment_plans` | Movimientos futuros o recurrentes |
 | `transactions` | Registro histórico de movimientos |
 
-**Divisa:** se ha decidido una única divisa por grupo de cuentas para el alcance actual, con `currency` manteniéndose como campo por cuenta (`accounts.currency`) en lugar de moverse a `account_groups` — se prevé que un grupo pueda admitir divisas distintas más adelante, y mantener el campo a nivel de cuenta evita una migración de esquema cuando eso ocurra. La coherencia (todas las cuentas de un mismo grupo en la misma divisa) se impone a nivel de aplicación y de interfaz, no mediante una restricción de base de datos. La validación concreta se define en el SPEC del dominio `account_groups`/`accounts`, pendiente de redactar.
+**Divisa:** se ha decidido una única divisa por grupo de cuentas para el alcance actual, con `currency` manteniéndose como campo por cuenta (`accounts.currency`) en lugar de moverse a `account_groups` — se prevé que un grupo pueda admitir divisas distintas más adelante, y mantener el campo a nivel de cuenta evita una migración de esquema cuando eso ocurra. La coherencia (todas las cuentas de un mismo grupo en la misma divisa) se impone a nivel de aplicación y de interfaz, no mediante una restricción de base de datos. La validación concreta se define en `docs/domains/accounts.md` §5: la primera cuenta activa de un grupo fija su divisa, y cualquier cuenta posterior con una `currency` distinta se rechaza con `409`.
 
 Las invariantes de negocio no expresables mediante claves foráneas simples (jerarquía de categorías, consistencia categoría–cuenta–grupo, cálculo de saldo) se implementan como triggers y funciones a nivel de base de datos.
 
