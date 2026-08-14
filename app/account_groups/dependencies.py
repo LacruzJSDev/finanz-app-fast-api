@@ -7,6 +7,7 @@ from app.account_groups.models import AccountGroupMember, AccountGroupMemberRole
 from app.account_groups.repository import (
     AccountGroupMemberRepository,
     AccountGroupsRepository,
+    InvitationRepository,
 )
 from app.account_groups.service import AccountGroupService
 from app.shared.dependencies import CurrentUser, DbSession
@@ -24,6 +25,10 @@ def get_account_group_member_repository(db: DbSession) -> AccountGroupMemberRepo
     return AccountGroupMemberRepository(db)
 
 
+def get_invitation_repository(db: DbSession) -> InvitationRepository:
+    return InvitationRepository(db)
+
+
 def get_account_group_service(
     account_group_repo: Annotated[
         AccountGroupsRepository, Depends(get_account_group_repository)
@@ -32,8 +37,13 @@ def get_account_group_service(
         AccountGroupMemberRepository, Depends(get_account_group_member_repository)
     ],
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+    invitation_repo: Annotated[
+        InvitationRepository, Depends(get_invitation_repository)
+    ],
 ) -> AccountGroupService:
-    return AccountGroupService(account_group_repo, account_group_member_repo, user_repo)
+    return AccountGroupService(
+        account_group_repo, account_group_member_repo, user_repo, invitation_repo
+    )
 
 
 AccountGroupServiceDep = Annotated[

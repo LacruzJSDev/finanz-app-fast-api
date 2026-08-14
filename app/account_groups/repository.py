@@ -7,12 +7,14 @@ from sqlalchemy.orm import Session, selectinload
 from app.account_groups.commands import (
     AccountGroupCommand,
     AccountGroupMemberCommand,
+    InvitationCommand,
     UpdateAccountGroupCommand,
 )
 from app.account_groups.models import (
     AccountGroup,
     AccountGroupMember,
     AccountGroupMemberRoleEnum,
+    Invitation,
 )
 
 
@@ -135,3 +137,22 @@ class AccountGroupMemberRepository:
                 AccountGroupMember.user_id == user_id,
             )
         )
+
+
+@dataclass
+class InvitationRepository:
+    """Acceso a datos del dominio invitations."""
+
+    db: Session
+
+    def create_invitation(self, new_invitation: InvitationCommand) -> Invitation:
+        invitation = Invitation(
+            group_id=new_invitation.group_id,
+            invited_by=new_invitation.invited_by,
+            role=new_invitation.role,
+            code=new_invitation.code,
+            expires_at=new_invitation.expires_at,
+        )
+        self.db.add(invitation)
+        self.db.flush()
+        return invitation

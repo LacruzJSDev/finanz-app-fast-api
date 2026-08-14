@@ -1,9 +1,12 @@
+import secrets
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
 from app.account_groups.commands import (
     AccountGroupCommand,
     AccountGroupMemberCommand,
+    InvitationCommand,
     UpdateAccountGroupCommand,
 )
 from app.account_groups.models import (
@@ -14,8 +17,9 @@ from app.account_groups.models import (
 from app.account_groups.repository import (
     AccountGroupMemberRepository,
     AccountGroupsRepository,
+    InvitationRepository,
 )
-from app.account_groups.schemas import GroupMemberRead, GroupRead
+from app.account_groups.schemas import GroupMemberRead, GroupRead, InvitationRead
 from app.shared.exceptions import BadRequestError, ConflictError, ForbiddenError
 from app.users.models import User
 from app.users.repository import UserRepository
@@ -28,6 +32,7 @@ class AccountGroupService:
     account_group_repo: AccountGroupsRepository
     account_group_member_repo: AccountGroupMemberRepository
     user_repo: UserRepository
+    invitation_repo: InvitationRepository
 
     def _to_group_read(self, group: AccountGroup) -> GroupRead:
         return GroupRead(
@@ -155,3 +160,35 @@ class AccountGroupService:
                 )
 
         self.account_group_member_repo.delete_group_member(group_id, expeled_user_id)
+
+    def create_invitation(
+        self, group_id: uuid.UUID, user_id: uuid.UUID, role: AccountGroupMemberRoleEnum
+    ) -> InvitationRead:
+
+        code = secrets.token_urlsafe(15)
+
+        now = datetime.now(timezone.utc)
+        expires_at = now + timedelta(days=7)
+
+        invitation_command = InvitationCommand(
+            group_id=group_id,
+            invited_by=user_id,
+            role=role,
+            code=code,
+            expires_at=expires_at,
+        )
+        invitation = self.invitation_repo.create_invitation(invitation_command)
+
+        invitation_read = InvitationRead(
+            id=invitation.id,
+            group_id=invitation.group_id,
+            invited_by=invitation.invited_by,
+            role=invitation.role,
+            code=invitation.code,
+            status=invitation.status,
+            accepted_by=invitation.accepted_by,
+            accepted_at=invitation.accepted_at,
+            expires_at=invitation.expires_at,
+            created_at=invitation.created_at,
+        )
+        return invitation_read

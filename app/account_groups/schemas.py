@@ -4,7 +4,7 @@ from typing import cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.account_groups.models import AccountGroupMemberRoleEnum
+from app.account_groups.models import AccountGroupMemberRoleEnum, InvitationStatusEnum
 
 
 class CreateGroupRequest(BaseModel):
@@ -59,3 +59,26 @@ class GroupRead(BaseModel):
     members: list[GroupMemberRead] = Field(
         default_factory=lambda: cast(list[GroupMemberRead], [])
     )
+
+
+class CreateInvitationRequest(BaseModel):
+    """Cuerpo de POST /{group_id}/invitations"""
+
+    role: AccountGroupMemberRoleEnum
+
+
+class InvitationRead(BaseModel):
+    """Representación pública de una invitación a un grupo"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    group_id: uuid.UUID
+    invited_by: uuid.UUID | None
+    role: AccountGroupMemberRoleEnum
+    code: str
+    status: InvitationStatusEnum
+    accepted_by: uuid.UUID | None
+    accepted_at: datetime | None
+    expires_at: datetime
+    created_at: datetime

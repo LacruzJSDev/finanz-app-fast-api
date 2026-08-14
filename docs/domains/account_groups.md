@@ -70,7 +70,7 @@ Requiere rol `owner` o `admin`.
 - **Efecto**: crea una fila en `invitations` con un `code` aleatorio y `expires_at` (ver sección 5 para la duración).
 - **Salida**: la invitación, incluido `code` — es responsabilidad del cliente comunicárselo a la persona invitada, fuera del alcance de este dominio (no hay envío de email en v1, ver sección 6).
 
-### `POST /api/v1/invitations/{code}/accept`
+### `POST /api/v1/account-groups/invitations/{code}/accept`
 
 Requiere autenticación, no pertenencia previa al grupo.
 

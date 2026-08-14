@@ -12,8 +12,10 @@ from app.account_groups.dependencies import (
 from app.account_groups.schemas import (
     ChangeGroupMemberRoleRequest,
     CreateGroupRequest,
+    CreateInvitationRequest,
     GroupMemberRead,
     GroupRead,
+    InvitationRead,
     UpdateGroupRequest,
 )
 from app.shared.dependencies import CurrentUser
@@ -97,3 +99,14 @@ def expel_group_member(
 ) -> None:
     service.expel_group_member(group_id, user_id, user.id)
     return
+
+
+@router.post("/{group_id}/invitations", status_code=status.HTTP_201_CREATED)
+def create_invitation(
+    payload: CreateInvitationRequest,
+    service: AccountGroupServiceDep,
+    group_id: uuid.UUID,
+    membership: RequireOwnerOrAdmin,
+) -> InvitationRead:
+    result = service.create_invitation(group_id, membership.user_id, payload.role)
+    return result
