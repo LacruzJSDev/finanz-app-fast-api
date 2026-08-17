@@ -1,6 +1,7 @@
 import uuid
 from dataclasses import dataclass
 from datetime import date as date_
+from datetime import datetime, timezone
 
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
@@ -83,3 +84,10 @@ class TransactionRepository:
             .values(**values)
             .returning(Transaction)
         ).scalar_one()
+
+    def delete_transaction(self, transaction_id: uuid.UUID) -> None:
+        self.db.execute(
+            update(Transaction)
+            .where(Transaction.id == transaction_id)
+            .values(deleted_at=datetime.now(timezone.utc))
+        )

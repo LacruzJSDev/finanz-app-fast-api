@@ -82,3 +82,14 @@ def update_transaction(
         notes=payload.notes if "notes" in fields_set else None,
     )
     return service.update_transaction(account_id, transaction_id, command)
+
+
+@router.delete("/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_transaction(
+    service: TransactionServiceDep,
+    account_id: uuid.UUID,
+    transaction_id: uuid.UUID,
+    account: RequireAccountMembership,
+) -> None:
+    service.delete_transaction(account_id, transaction_id)
+    return
