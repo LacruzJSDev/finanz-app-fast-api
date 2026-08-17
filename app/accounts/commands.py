@@ -13,3 +13,12 @@ class AccountCommand:
     currency: str | None
     color: str | None
     icon: str | None
+
+
+@dataclass
+class UpdateAccountCommand:
+    name: str | None
+    type: AccountTypeEnum | None
+    color: str | None
+    icon: str | None
+    is_active: bool | None

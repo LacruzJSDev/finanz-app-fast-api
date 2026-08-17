@@ -4,9 +4,13 @@ from typing import Annotated
 from fastapi import APIRouter, Query, status
 
 from app.account_groups.dependencies import RequireMembership, RequireOwnerOrAdmin
-from app.accounts.commands import AccountCommand
-from app.accounts.dependencies import AccountServiceDep, VerifyAccountAccess
-from app.accounts.schemas import AccountRead, CreateAccountRequest
+from app.accounts.commands import AccountCommand, UpdateAccountCommand
+from app.accounts.dependencies import (
+    AccountServiceDep,
+    RequireAccountMembership,
+    RequireAccountOwnerOrAdmin,
+)
+from app.accounts.schemas import AccountRead, CreateAccountRequest, UpdateAccountRequest
 from app.shared.dependencies import CurrentUser
 from app.shared.schemas import CollectionResponse
 
@@ -51,6 +55,27 @@ def get_accounts(
 
 @router.get("/{account_id}")
 def get_account(
-    service: AccountServiceDep, account_id: uuid.UUID, account: VerifyAccountAccess
+    service: AccountServiceDep,
+    account_id: uuid.UUID,
+    account: RequireAccountMembership,
 ) -> AccountRead:
     return service.get_account(account_id)
+
+
+@router.patch("/{account_id}")
+def update_account(
+    payload: UpdateAccountRequest,
+    service: AccountServiceDep,
+    account_id: uuid.UUID,
+    account: RequireAccountOwnerOrAdmin,
+) -> AccountRead:
+
+    fields_set = payload.model_fields_set
+    update_account_command = UpdateAccountCommand(
+        name=payload.name if "name" in fields_set else None,
+        type=payload.type if "type" in fields_set else None,
+        color=payload.color if "color" in fields_set else None,
+        icon=payload.icon if "icon" in fields_set else None,
+        is_active=payload.is_active if "is_active" in fields_set else None,
+    )
+    return service.update_account(account_id, update_account_command)

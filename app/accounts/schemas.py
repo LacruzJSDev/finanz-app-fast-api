@@ -15,8 +15,18 @@ class CreateAccountRequest(BaseModel):
     type: AccountTypeEnum | None = Field(default=None)
     opening_balance: int | None = Field(default=None)
     currency: str | None = Field(default=None)
-    color: str | None = Field(default=None)
-    icon: str | None = Field(default=None)
+    color: str | None = Field(default=None, min_length=4, max_length=7)
+    icon: str | None = Field(default=None, max_length=50)
+
+
+class UpdateAccountRequest(BaseModel):
+    """Cuerpo de PATCH /accounts"""
+
+    name: str | None
+    type: AccountTypeEnum | None = Field(default=None)
+    color: str | None = Field(default=None, min_length=4, max_length=7)
+    icon: str | None = Field(default=None, max_length=50)
+    is_active: bool | None = Field(default=None)
 
 
 class AccountRead(BaseModel):

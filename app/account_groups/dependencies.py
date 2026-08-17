@@ -51,6 +51,23 @@ AccountGroupServiceDep = Annotated[
 ]
 
 
+def check_group_role(
+    membership: AccountGroupMember | None,
+    *allowed_roles: AccountGroupMemberRoleEnum,
+) -> AccountGroupMember:
+    """Parte de la comprobación que no depende de cómo se llegó al
+    group_id — la reutiliza cualquier dominio que necesite autorizar por
+    rol de pertenencia a un grupo (ver accounts/dependencies.py, que
+    resuelve el group_id desde una cuenta en vez de leerlo directo de la
+    ruta/query).
+    """
+    if membership is None:
+        raise ForbiddenError("No perteneces a este grupo")
+    if allowed_roles and membership.role not in allowed_roles:
+        raise ForbiddenError("No tienes permiso suficiente")
+    return membership
+
+
 def require_group_role(
     *allowed_roles: AccountGroupMemberRoleEnum,
 ) -> Callable[[uuid.UUID, User, DbSession], AccountGroupMember]:
@@ -61,11 +78,7 @@ def require_group_role(
     ) -> AccountGroupMember:
         member_repo = AccountGroupMemberRepository(db)
         membership = member_repo.get_membership(group_id, user.id)
-        if membership is None:
-            raise ForbiddenError("No perteneces a este grupo")
-        if allowed_roles and membership.role not in allowed_roles:
-            raise ForbiddenError("No tienes permiso suficiente")
-        return membership
+        return check_group_role(membership, *allowed_roles)
 
     return verify_group_membership
 

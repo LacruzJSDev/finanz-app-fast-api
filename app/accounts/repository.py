@@ -1,10 +1,10 @@
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.accounts.commands import AccountCommand
+from app.accounts.commands import AccountCommand, UpdateAccountCommand
 from app.accounts.models import Account, AccountTypeEnum
 
 
@@ -55,3 +55,25 @@ class AccountRepository:
         return self.db.execute(
             select(Account).where(Account.id == account_id)
         ).scalar_one_or_none()
+
+    def update_account(
+        self, account_id: uuid.UUID, account: UpdateAccountCommand
+    ) -> Account:
+        values: dict[str, str | bool] = {}
+        if account.name is not None:
+            values["name"] = account.name
+        if account.type is not None:
+            values["type"] = account.type
+        if account.color is not None:
+            values["color"] = account.color
+        if account.icon is not None:
+            values["icon"] = account.icon
+        if account.is_active is not None:
+            values["is_active"] = account.is_active
+
+        return self.db.execute(
+            update(Account)
+            .where(Account.id == account_id)
+            .values(**values)
+            .returning(Account)
+        ).scalar_one()

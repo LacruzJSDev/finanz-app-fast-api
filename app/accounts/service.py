@@ -1,10 +1,10 @@
 import uuid
 from dataclasses import dataclass
 
-from app.accounts.commands import AccountCommand
+from app.accounts.commands import AccountCommand, UpdateAccountCommand
 from app.accounts.repository import AccountRepository
 from app.accounts.schemas import AccountRead
-from app.shared.exceptions import ConflictError, NotFoundError
+from app.shared.exceptions import BadRequestError, ConflictError, NotFoundError
 
 
 @dataclass
@@ -47,4 +47,21 @@ class AccountService:
         if account is None:
             raise NotFoundError("La cuenta no existe")
         account_read = AccountRead.model_validate(account)
+        return account_read
+
+    def update_account(
+        self, account_id: uuid.UUID, account: UpdateAccountCommand
+    ) -> AccountRead:
+        fields = (
+            account.name,
+            account.type,
+            account.color,
+            account.icon,
+            account.is_active,
+        )
+        if all(field is None for field in fields):
+            raise BadRequestError("Debes incluir al menos un campo para actualizar")
+
+        updated_account = self.account_repo.update_account(account_id, account)
+        account_read = AccountRead.model_validate(updated_account)
         return account_read
