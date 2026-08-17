@@ -34,3 +34,10 @@ class AccountService:
         account = self.account_repo.create_account(user_id, account_command)
         account_read = AccountRead.model_validate(account)
         return account_read
+
+    def get_accounts(self, group_id: uuid.UUID) -> list[AccountRead]:
+        accounts = self.account_repo.get_accounts_by_group_id(group_id)
+        accounts_read: list[AccountRead] = [
+            AccountRead.model_validate(account) for account in accounts
+        ]
+        return accounts_read

@@ -3,11 +3,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query, status
 
-from app.account_groups.dependencies import RequireOwnerOrAdmin
+from app.account_groups.dependencies import RequireMembership, RequireOwnerOrAdmin
 from app.accounts.commands import AccountCommand
 from app.accounts.dependencies import AccountServiceDep
 from app.accounts.schemas import AccountRead, CreateAccountRequest
 from app.shared.dependencies import CurrentUser
+from app.shared.schemas import CollectionResponse
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
 
@@ -37,3 +38,12 @@ def create_account(
         icon=payload.icon,
     )
     return service.create_account(user.id, account_command)
+
+
+@router.get("/")
+def get_accounts(
+    service: AccountServiceDep, group_id: GroupIdQuery, membership: RequireMembership
+) -> CollectionResponse[AccountRead]:
+    result = service.get_accounts(group_id)
+    collection_response = CollectionResponse[AccountRead](items=result)
+    return collection_response
