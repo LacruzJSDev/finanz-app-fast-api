@@ -16,6 +16,13 @@ from app.categories.schemas import (
     UpdateCategoryRequest,
 )
 from app.shared.dependencies import CurrentUser
+from app.shared.openapi_responses import (
+    BAD_REQUEST,
+    CONFLICT,
+    FORBIDDEN,
+    UNAUTHORIZED,
+    responses,
+)
 from app.shared.schemas import CollectionResponse
 
 router = APIRouter(prefix="/categories", tags=["categories"])
@@ -27,7 +34,11 @@ GroupIdQuery = Annotated[
 ]
 
 
-@router.post("/", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    status_code=status.HTTP_201_CREATED,
+    responses=responses(UNAUTHORIZED, FORBIDDEN, CONFLICT),
+)
 def create_category(
     payload: CreateCategoryRequest,
     service: CategoryServiceDep,
@@ -45,7 +56,7 @@ def create_category(
     return service.create_category(user.id, category_command)
 
 
-@router.get("/")
+@router.get("/", responses=responses(UNAUTHORIZED, FORBIDDEN))
 def get_categories(
     service: CategoryServiceDep, group_id: GroupIdQuery, membership: RequireMembership
 ) -> CollectionResponse[CategoryRead]:
@@ -53,7 +64,7 @@ def get_categories(
     return CollectionResponse[CategoryRead](items=result)
 
 
-@router.get("/{category_id}")
+@router.get("/{category_id}", responses=responses(UNAUTHORIZED, FORBIDDEN))
 def get_category(
     service: CategoryServiceDep,
     category_id: uuid.UUID,
@@ -62,7 +73,10 @@ def get_category(
     return service.get_category(category_id)
 
 
-@router.patch("/{category_id}")
+@router.patch(
+    "/{category_id}",
+    responses=responses(UNAUTHORIZED, FORBIDDEN, BAD_REQUEST, CONFLICT),
+)
 def update_category(
     payload: UpdateCategoryRequest,
     service: CategoryServiceDep,

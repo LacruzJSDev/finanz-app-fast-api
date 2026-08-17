@@ -5,6 +5,14 @@ from fastapi import APIRouter, Query, status
 
 from app.accounts.dependencies import RequireAccountMembership
 from app.shared.dependencies import CurrentUser
+from app.shared.openapi_responses import (
+    BAD_REQUEST,
+    CONFLICT,
+    FORBIDDEN,
+    NOT_FOUND,
+    UNAUTHORIZED,
+    responses,
+)
 from app.shared.schemas import PaginatedResponse
 from app.transactions.commands import CreateTransactionCommand, UpdateTransactionCommand
 from app.transactions.dependencies import TransactionServiceDep
@@ -20,7 +28,11 @@ OffsetQuery = Annotated[int, Query(ge=0)]
 router = APIRouter(prefix="/accounts/{account_id}/transactions", tags=["transactions"])
 
 
-@router.post("/", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    status_code=status.HTTP_201_CREATED,
+    responses=responses(UNAUTHORIZED, FORBIDDEN, CONFLICT),
+)
 def create_transaction(
     payload: CreateTransactionRequest,
     service: TransactionServiceDep,
@@ -41,7 +53,7 @@ def create_transaction(
     return service.create_transaction(user.id, command)
 
 
-@router.get("/")
+@router.get("/", responses=responses(UNAUTHORIZED, FORBIDDEN))
 def get_transactions(
     service: TransactionServiceDep,
     account_id: uuid.UUID,
@@ -55,7 +67,9 @@ def get_transactions(
     )
 
 
-@router.get("/{transaction_id}")
+@router.get(
+    "/{transaction_id}", responses=responses(UNAUTHORIZED, FORBIDDEN, NOT_FOUND)
+)
 def get_transaction(
     service: TransactionServiceDep,
     account_id: uuid.UUID,
@@ -65,7 +79,10 @@ def get_transaction(
     return service.get_transaction(account_id, transaction_id)
 
 
-@router.patch("/{transaction_id}")
+@router.patch(
+    "/{transaction_id}",
+    responses=responses(UNAUTHORIZED, FORBIDDEN, BAD_REQUEST, NOT_FOUND, CONFLICT),
+)
 def update_transaction(
     payload: UpdateTransactionRequest,
     service: TransactionServiceDep,
@@ -84,7 +101,11 @@ def update_transaction(
     return service.update_transaction(account_id, transaction_id, command)
 
 
-@router.delete("/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{transaction_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=responses(UNAUTHORIZED, FORBIDDEN, NOT_FOUND),
+)
 def delete_transaction(
     service: TransactionServiceDep,
     account_id: uuid.UUID,

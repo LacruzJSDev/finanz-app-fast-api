@@ -8,6 +8,7 @@ from app.categories.router import router as categories_router
 from app.config import settings
 from app.payment_plans.router import router as payment_plans_router
 from app.shared.error_handlers import register_error_handlers
+from app.shared.openapi_responses import VALIDATION_ERROR
 from app.transactions.router import router as transactions_router
 
 app = FastAPI(title="FinanzApp API", version="0.1.0")
@@ -30,12 +31,15 @@ app.add_middleware(
 
 # Todas las rutas de negocio cuelgan de /api/v1. El prefijo se pone aquí, una
 # sola vez, y no dentro de cada router (ver ARCHITECTURE.md §5.1).
-app.include_router(auth_router, prefix="/api/v1")
-app.include_router(account_groups_router, prefix="/api/v1")
-app.include_router(accounts_router, prefix="/api/v1")
-app.include_router(categories_router, prefix="/api/v1")
-app.include_router(transactions_router, prefix="/api/v1")
-app.include_router(payment_plans_router, prefix="/api/v1")
+#
+# responses=VALIDATION_ERROR aquí, una sola vez para todos los routers en vez
+# de en cada endpoint (ver openapi_responses.py).
+app.include_router(auth_router, prefix="/api/v1", responses=VALIDATION_ERROR)
+app.include_router(account_groups_router, prefix="/api/v1", responses=VALIDATION_ERROR)
+app.include_router(accounts_router, prefix="/api/v1", responses=VALIDATION_ERROR)
+app.include_router(categories_router, prefix="/api/v1", responses=VALIDATION_ERROR)
+app.include_router(transactions_router, prefix="/api/v1", responses=VALIDATION_ERROR)
+app.include_router(payment_plans_router, prefix="/api/v1", responses=VALIDATION_ERROR)
 
 
 @app.get("/health", tags=["health"])

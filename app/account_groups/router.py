@@ -19,12 +19,22 @@ from app.account_groups.schemas import (
     UpdateGroupRequest,
 )
 from app.shared.dependencies import CurrentUser
+from app.shared.openapi_responses import (
+    BAD_REQUEST,
+    CONFLICT,
+    FORBIDDEN,
+    NOT_FOUND,
+    UNAUTHORIZED,
+    responses,
+)
 from app.shared.schemas import CollectionResponse
 
 router = APIRouter(prefix="/account-groups", tags=["account-groups"])
 
 
-@router.post("/", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/", status_code=status.HTTP_201_CREATED, responses=responses(UNAUTHORIZED)
+)
 def create_group(
     payload: CreateGroupRequest,
     service: AccountGroupServiceDep,
@@ -38,7 +48,7 @@ def create_group(
     return result
 
 
-@router.get("/")
+@router.get("/", responses=responses(UNAUTHORIZED))
 def groups(
     service: AccountGroupServiceDep,
     user: CurrentUser,
@@ -50,7 +60,10 @@ def groups(
     return collection_response
 
 
-@router.patch("/{group_id}")
+@router.patch(
+    "/{group_id}",
+    responses=responses(UNAUTHORIZED, FORBIDDEN, BAD_REQUEST),
+)
 def update_group(
     payload: UpdateGroupRequest,
     service: AccountGroupServiceDep,
@@ -68,7 +81,7 @@ def update_group(
     return service.update_group(membership, update_group_command)
 
 
-@router.get("/{group_id}/members")
+@router.get("/{group_id}/members", responses=responses(UNAUTHORIZED, FORBIDDEN))
 def get_group_members(
     service: AccountGroupServiceDep, group_id: uuid.UUID, membership: RequireMembership
 ) -> CollectionResponse[GroupMemberRead]:
@@ -78,7 +91,10 @@ def get_group_members(
     return collection_response
 
 
-@router.patch("/{group_id}/members/{user_id}")
+@router.patch(
+    "/{group_id}/members/{user_id}",
+    responses=responses(UNAUTHORIZED, FORBIDDEN, CONFLICT),
+)
 def change_group_member_role(
     payload: ChangeGroupMemberRoleRequest,
     service: AccountGroupServiceDep,
@@ -89,7 +105,11 @@ def change_group_member_role(
     return service.change_group_member_role(group_id, user_id, payload.role)
 
 
-@router.delete("/{group_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{group_id}/members/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=responses(UNAUTHORIZED, FORBIDDEN, CONFLICT),
+)
 def expel_group_member(
     service: AccountGroupServiceDep,
     group_id: uuid.UUID,
@@ -101,7 +121,11 @@ def expel_group_member(
     return
 
 
-@router.post("/{group_id}/invitations", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/{group_id}/invitations",
+    status_code=status.HTTP_201_CREATED,
+    responses=responses(UNAUTHORIZED, FORBIDDEN),
+)
 def create_invitation(
     payload: CreateInvitationRequest,
     service: AccountGroupServiceDep,
@@ -112,7 +136,10 @@ def create_invitation(
     return result
 
 
-@router.get("/invitations/{code}")
+@router.get(
+    "/invitations/{code}",
+    responses=responses(UNAUTHORIZED, NOT_FOUND, CONFLICT),
+)
 def get_invitation(
     service: AccountGroupServiceDep, code: str, user: CurrentUser
 ) -> InvitationRead:
@@ -120,7 +147,10 @@ def get_invitation(
     return result
 
 
-@router.post("/{group_id}/invitations/{invitation_id}/accept")
+@router.post(
+    "/{group_id}/invitations/{invitation_id}/accept",
+    responses=responses(UNAUTHORIZED, NOT_FOUND, CONFLICT),
+)
 def accept_invitation(
     service: AccountGroupServiceDep,
     group_id: uuid.UUID,

@@ -11,6 +11,7 @@ from app.shared.dependencies import (
     RefreshToken,
 )
 from app.shared.exceptions import UnauthorizedError
+from app.shared.openapi_responses import CONFLICT, UNAUTHORIZED, responses
 from app.users.schemas import UserRead
 
 # El prefijo aquí es solo el del dominio. La versión (/api/v1) la pone main.py
@@ -49,7 +50,7 @@ def _delete_auth_cookies(response: Response):
     response.delete_cookie(REFRESH_TOKEN_COOKIE, path="/api/v1/auth")
 
 
-@router.post("/login")
+@router.post("/login", responses=responses(UNAUTHORIZED))
 def login(
     payload: LoginRequest, service: AuthServiceDep, response: Response
 ) -> UserRead:
@@ -59,7 +60,9 @@ def login(
     return result.user
 
 
-@router.post("/register", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register", status_code=status.HTTP_201_CREATED, responses=responses(CONFLICT)
+)
 def register(
     payload: RegisterRequest, service: AuthServiceDep, response: Response
 ) -> UserRead:
@@ -69,7 +72,11 @@ def register(
     return result.user
 
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=responses(UNAUTHORIZED),
+)
 def logout(service: AuthServiceDep, refresh_token: RefreshToken, response: Response):
     """Cierra la sesión actual del usuario."""
     if refresh_token is None:
@@ -79,7 +86,7 @@ def logout(service: AuthServiceDep, refresh_token: RefreshToken, response: Respo
     return
 
 
-@router.post("/refresh")
+@router.post("/refresh", responses=responses(UNAUTHORIZED))
 def refresh(
     service: AuthServiceDep, refresh_token: RefreshToken, response: Response
 ) -> UserRead:
@@ -91,7 +98,11 @@ def refresh(
     return result.user
 
 
-@router.patch("/change_password", status_code=status.HTTP_204_NO_CONTENT)
+@router.patch(
+    "/change_password",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=responses(UNAUTHORIZED),
+)
 def change_password(
     service: AuthServiceDep, payload: ChangePasswordRequest, user: CurrentUser
 ):

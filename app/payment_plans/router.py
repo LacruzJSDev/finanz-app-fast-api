@@ -17,6 +17,14 @@ from app.payment_plans.schemas import (
     UpdatePaymentPlanRequest,
 )
 from app.shared.dependencies import CurrentUser
+from app.shared.openapi_responses import (
+    BAD_REQUEST,
+    CONFLICT,
+    FORBIDDEN,
+    NOT_FOUND,
+    UNAUTHORIZED,
+    responses,
+)
 from app.shared.schemas import CollectionResponse
 
 router = APIRouter(
@@ -24,7 +32,11 @@ router = APIRouter(
 )
 
 
-@router.post("/", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    status_code=status.HTTP_201_CREATED,
+    responses=responses(UNAUTHORIZED, FORBIDDEN, CONFLICT),
+)
 def create_payment_plan(
     payload: CreatePaymentPlanRequest,
     service: PaymentPlanServiceDep,
@@ -49,7 +61,7 @@ def create_payment_plan(
     return service.create_payment_plan(user.id, command)
 
 
-@router.get("/")
+@router.get("/", responses=responses(UNAUTHORIZED, FORBIDDEN))
 def get_payment_plans(
     service: PaymentPlanServiceDep,
     account_id: uuid.UUID,
@@ -59,7 +71,9 @@ def get_payment_plans(
     return CollectionResponse[PaymentPlanRead](items=result)
 
 
-@router.get("/{payment_plan_id}")
+@router.get(
+    "/{payment_plan_id}", responses=responses(UNAUTHORIZED, FORBIDDEN, NOT_FOUND)
+)
 def get_payment_plan(
     service: PaymentPlanServiceDep,
     account_id: uuid.UUID,
@@ -69,7 +83,10 @@ def get_payment_plan(
     return service.get_payment_plan(account_id, payment_plan_id)
 
 
-@router.patch("/{payment_plan_id}")
+@router.patch(
+    "/{payment_plan_id}",
+    responses=responses(UNAUTHORIZED, FORBIDDEN, BAD_REQUEST, NOT_FOUND, CONFLICT),
+)
 def update_payment_plan(
     payload: UpdatePaymentPlanRequest,
     service: PaymentPlanServiceDep,

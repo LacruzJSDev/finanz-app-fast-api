@@ -12,6 +12,13 @@ from app.accounts.dependencies import (
 )
 from app.accounts.schemas import AccountRead, CreateAccountRequest, UpdateAccountRequest
 from app.shared.dependencies import CurrentUser
+from app.shared.openapi_responses import (
+    BAD_REQUEST,
+    CONFLICT,
+    FORBIDDEN,
+    UNAUTHORIZED,
+    responses,
+)
 from app.shared.schemas import CollectionResponse
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
@@ -24,7 +31,11 @@ GroupIdQuery = Annotated[
 ]
 
 
-@router.post("/", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    status_code=status.HTTP_201_CREATED,
+    responses=responses(UNAUTHORIZED, FORBIDDEN, CONFLICT),
+)
 def create_account(
     payload: CreateAccountRequest,
     service: AccountServiceDep,
@@ -44,7 +55,7 @@ def create_account(
     return service.create_account(user.id, account_command)
 
 
-@router.get("/")
+@router.get("/", responses=responses(UNAUTHORIZED, FORBIDDEN))
 def get_accounts(
     service: AccountServiceDep, group_id: GroupIdQuery, membership: RequireMembership
 ) -> CollectionResponse[AccountRead]:
@@ -53,7 +64,7 @@ def get_accounts(
     return collection_response
 
 
-@router.get("/{account_id}")
+@router.get("/{account_id}", responses=responses(UNAUTHORIZED, FORBIDDEN))
 def get_account(
     service: AccountServiceDep,
     account_id: uuid.UUID,
@@ -62,7 +73,9 @@ def get_account(
     return service.get_account(account_id)
 
 
-@router.patch("/{account_id}")
+@router.patch(
+    "/{account_id}", responses=responses(UNAUTHORIZED, FORBIDDEN, BAD_REQUEST)
+)
 def update_account(
     payload: UpdateAccountRequest,
     service: AccountServiceDep,
