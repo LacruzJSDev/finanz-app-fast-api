@@ -127,7 +127,7 @@ class TransactionService:
             raise ConflictError("La categoría no pertenece al grupo de la cuenta")
 
     def create_transaction(
-        self, user_id: uuid.UUID, command: CreateTransactionCommand
+        self, user_id: uuid.UUID | None, command: CreateTransactionCommand
     ) -> TransactionRead:
         self._check_category(command.category_id, command.group_id)
 
@@ -148,12 +148,13 @@ class TransactionService:
             type=command.type,
             date=command.date,
             notes=command.notes,
+            payment_plan_id=command.payment_plan_id,
         )
         transaction = self.transaction_repo.create_transaction(user_id, row)
         return TransactionRead.model_validate(transaction)
 
     def _create_transfer(
-        self, user_id: uuid.UUID, command: CreateTransactionCommand
+        self, user_id: uuid.UUID | None, command: CreateTransactionCommand
     ) -> TransactionRead:
         to_account_id = command.to_account_id
         if to_account_id is None:
@@ -180,6 +181,7 @@ class TransactionService:
             type=command.type,
             date=command.date,
             notes=command.notes,
+            payment_plan_id=command.payment_plan_id,
         )
         destination_row = TransactionRowCommand(
             account_id=to_account_id,
@@ -190,6 +192,7 @@ class TransactionService:
             type=command.type,
             date=command.date,
             notes=command.notes,
+            payment_plan_id=command.payment_plan_id,
         )
         origin_transaction = self.transaction_repo.create_transaction(
             user_id, origin_row

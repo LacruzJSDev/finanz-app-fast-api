@@ -15,6 +15,7 @@ class CreateTransactionCommand:
     to_account_id: uuid.UUID | None
     date: date_
     notes: str | None
+    payment_plan_id: uuid.UUID | None = None
 
 
 @dataclass
@@ -27,6 +28,7 @@ class TransactionRowCommand:
     type: TransactionTypeEnum
     date: date_
     notes: str | None
+    payment_plan_id: uuid.UUID | None = None
 
 
 @dataclass

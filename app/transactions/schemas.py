@@ -50,6 +50,7 @@ class TransactionRead(BaseModel):
     to_account_id: uuid.UUID | None
     category_id: uuid.UUID | None
     transfer_group_id: uuid.UUID | None
+    payment_plan_id: uuid.UUID | None
     amount: int
     type: TransactionTypeEnum
     date: date_

@@ -17,13 +17,14 @@ class TransactionRepository:
     db: Session
 
     def create_transaction(
-        self, user_id: uuid.UUID, row: TransactionRowCommand
+        self, user_id: uuid.UUID | None, row: TransactionRowCommand
     ) -> Transaction:
         transaction = Transaction(
             account_id=row.account_id,
             to_account_id=row.to_account_id,
             category_id=row.category_id,
             transfer_group_id=row.transfer_group_id,
+            payment_plan_id=row.payment_plan_id,
             amount=row.amount,
             type=row.type,
             date=row.date,

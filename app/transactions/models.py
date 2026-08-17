@@ -86,6 +86,11 @@ class Transaction(Base):
         UUID(as_uuid=True),
         ForeignKey("categories.id", ondelete="SET NULL"),
     )
+    payment_plan_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("payment_plans.id", ondelete="SET NULL"),
+        index=True,
+    )
     # Sin ForeignKey propia: solo enlaza entre sí las dos patas de una
     # misma transferencia (mismo valor en ambas filas), no referencia a
     # ninguna otra tabla.
