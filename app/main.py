@@ -6,6 +6,7 @@ from app.accounts.router import router as accounts_router
 from app.auth.router import router as auth_router
 from app.categories.router import router as categories_router
 from app.config import settings
+from app.payment_plans.router import router as payment_plans_router
 from app.shared.error_handlers import register_error_handlers
 from app.transactions.router import router as transactions_router
 
@@ -34,6 +35,7 @@ app.include_router(account_groups_router, prefix="/api/v1")
 app.include_router(accounts_router, prefix="/api/v1")
 app.include_router(categories_router, prefix="/api/v1")
 app.include_router(transactions_router, prefix="/api/v1")
+app.include_router(payment_plans_router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["health"])
