@@ -27,3 +27,12 @@ class TransactionRowCommand:
     type: TransactionTypeEnum
     date: date_
     notes: str | None
+
+
+@dataclass
+class UpdateTransactionCommand:
+    amount: int | None
+    type: TransactionTypeEnum | None
+    category_id: uuid.UUID | None
+    date: date_ | None
+    notes: str | None

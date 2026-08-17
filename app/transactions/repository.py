@@ -1,11 +1,12 @@
 import uuid
 from dataclasses import dataclass
+from datetime import date as date_
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from app.transactions.commands import TransactionRowCommand
-from app.transactions.models import Transaction
+from app.transactions.commands import TransactionRowCommand, UpdateTransactionCommand
+from app.transactions.models import Transaction, TransactionTypeEnum
 
 
 @dataclass
@@ -60,3 +61,25 @@ class TransactionRepository:
         return self.db.execute(
             select(Transaction).where(Transaction.id == transaction_id)
         ).scalar_one_or_none()
+
+    def update_transaction(
+        self, transaction_id: uuid.UUID, command: UpdateTransactionCommand
+    ) -> Transaction:
+        values: dict[str, int | uuid.UUID | date_ | str | TransactionTypeEnum] = {}
+        if command.amount is not None:
+            values["amount"] = command.amount
+        if command.type is not None:
+            values["type"] = command.type
+        if command.category_id is not None:
+            values["category_id"] = command.category_id
+        if command.date is not None:
+            values["date"] = command.date
+        if command.notes is not None:
+            values["notes"] = command.notes
+
+        return self.db.execute(
+            update(Transaction)
+            .where(Transaction.id == transaction_id)
+            .values(**values)
+            .returning(Transaction)
+        ).scalar_one()

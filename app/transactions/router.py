@@ -6,9 +6,13 @@ from fastapi import APIRouter, Query, status
 from app.accounts.dependencies import RequireAccountMembership
 from app.shared.dependencies import CurrentUser
 from app.shared.schemas import PaginatedResponse
-from app.transactions.commands import CreateTransactionCommand
+from app.transactions.commands import CreateTransactionCommand, UpdateTransactionCommand
 from app.transactions.dependencies import TransactionServiceDep
-from app.transactions.schemas import CreateTransactionRequest, TransactionRead
+from app.transactions.schemas import (
+    CreateTransactionRequest,
+    TransactionRead,
+    UpdateTransactionRequest,
+)
 
 LimitQuery = Annotated[int, Query(gt=0, le=100)]
 OffsetQuery = Annotated[int, Query(ge=0)]
@@ -59,3 +63,22 @@ def get_transaction(
     account: RequireAccountMembership,
 ) -> TransactionRead:
     return service.get_transaction(account_id, transaction_id)
+
+
+@router.patch("/{transaction_id}")
+def update_transaction(
+    payload: UpdateTransactionRequest,
+    service: TransactionServiceDep,
+    account_id: uuid.UUID,
+    transaction_id: uuid.UUID,
+    account: RequireAccountMembership,
+) -> TransactionRead:
+    fields_set = payload.model_fields_set
+    command = UpdateTransactionCommand(
+        amount=payload.amount if "amount" in fields_set else None,
+        type=payload.type if "type" in fields_set else None,
+        category_id=payload.category_id if "category_id" in fields_set else None,
+        date=payload.date if "date" in fields_set else None,
+        notes=payload.notes if "notes" in fields_set else None,
+    )
+    return service.update_transaction(account_id, transaction_id, command)

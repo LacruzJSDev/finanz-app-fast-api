@@ -28,6 +28,20 @@ class CreateTransactionRequest(BaseModel):
         return self
 
 
+class UpdateTransactionRequest(BaseModel):
+    amount: int | None = Field(default=None, gt=0)
+    type: TransactionTypeEnum | None = Field(default=None)
+    category_id: uuid.UUID | None = Field(default=None)
+    date: date_ | None = Field(default=None)
+    notes: str | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def check_type_not_transfer(self) -> Self:
+        if self.type == TransactionTypeEnum.TRANSFER:
+            raise ValueError("No se puede cambiar el tipo a transferencia")
+        return self
+
+
 class TransactionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

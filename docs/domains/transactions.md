@@ -52,9 +52,9 @@ Requiere pertenencia al grupo de la cuenta.
 
 Requiere pertenencia al grupo de la cuenta. Actualización parcial (`ARCHITECTURE.md` §5.5).
 
-- **Entrada**: `amount`, `category_id`, `date`, `notes` — todos opcionales. `type`, `account_id` y `to_account_id` **no** son editables (ver sección 5).
-- **Efecto**: el saldo de la cuenta se ajusta automáticamente al nuevo importe vía trigger. Si la transacción es una pata de una transferencia, `amount` (con signo invertido), `date` y `notes` se replican automáticamente en su pareja — vía trigger, no vía código de la aplicación (ver sección 5).
-- **Errores**: `400` si no se incluye ningún campo. `403`/`404` con el mismo criterio que el `GET` de detalle. `409` si el nuevo `category_id` pertenece a otro grupo o no es compatible con el `type` ya fijado de la transacción.
+- **Entrada**: `amount`, `type`, `category_id`, `date`, `notes` — todos opcionales. `type` solo admite alternar entre `income`/`expense`; nunca se puede poner ni quitar `transfer` (ver sección 5). `account_id` y `to_account_id` **no** son editables.
+- **Efecto**: el saldo de la cuenta se ajusta automáticamente al nuevo importe vía trigger. Cambiar `type` entre `income`/`expense` invierte el signo almacenado de `amount` aunque no se mande `amount` en la misma petición — se conserva la magnitud, cambia el signo. Si la transacción es una pata de una transferencia, `amount` (con signo invertido), `date` y `notes` se replican automáticamente en su pareja — vía trigger, no vía código de la aplicación (ver sección 5).
+- **Errores**: `400` si no se incluye ningún campo. `403`/`404` con el mismo criterio que el `GET` de detalle. `422` si `type = transfer`. `409` si se intenta cambiar el `type` de una transacción que ya es `transfer`, o si el nuevo `category_id` pertenece a otro grupo o no es compatible con el `type` (nuevo o ya fijado) de la transacción.
 
 ### `DELETE /api/v1/accounts/{account_id}/transactions/{transaction_id}`
 
@@ -75,7 +75,7 @@ Requiere pertenencia al grupo de la cuenta.
   - `transfer`: `to_account_id` es obligatorio y debe ser distinto de `account_id` (impuesto también por `CHECK chk_transfer_to_account`). `category_id` no se admite — una transferencia es un movimiento interno, ni ingreso ni gasto categorizable.
 - **`category_id` debe pertenecer al mismo grupo que la cuenta** — lo impone un trigger de base de datos (`check_transaction_category_group`), y se valida también en la aplicación para devolver un `409` claro en vez de dejar que un error interno de Postgres llegue sin traducir.
 - **`to_account_id` debe pertenecer al mismo grupo que `account_id`**: esto no lo impone ningún trigger — a diferencia de `category_id`, no hay invariante de base de datos que lo cubra — así que es una validación exclusivamente de aplicación, mismo patrón que el hueco ya documentado en `categories.md` §5.
-- **`type` no es editable tras la creación**, igual que `currency`/`opening_balance` en `accounts.md` §5: cambiarlo dejaría inconsistentes `category_id`/`to_account_id`, validados contra el `type` original, y rompería el enlace de una transferencia con su pareja. Si se registró con el tipo equivocado, se borra (borrado lógico) y se crea de nuevo. Por el mismo motivo, `account_id` y `to_account_id` tampoco son editables.
+- **`type` solo es editable entre `income` y `expense`**: es un cambio de signo sin más consecuencias (`category_id` sigue siendo válido en ambos). Nunca se puede convertir una transacción en `transfer`, ni convertir una `transfer` ya existente en otra cosa — eso exigiría crear/destruir una segunda fila y un `to_account_id`, no es un simple cambio de campo. Si una transferencia se registró mal, se borra (borrado lógico) y se crea de nuevo. `account_id` y `to_account_id` tampoco son editables, por la misma razón de fondo: ligados a una fila y, en el caso de `transfer`, a su pareja.
 - **El saldo nunca se escribe desde la aplicación**: `trg_transactions_balance_update` aplica o revierte el efecto de cada `INSERT`/`UPDATE`/`DELETE` sobre `balance`, siempre sobre la cuenta propia de la fila (`account_id`) — sin caso especial para `transfer`, ya que cada pata ya solo afecta a una cuenta.
 - **Borrado lógico, no físico** (`ARCHITECTURE.md` §8.2, la única excepción del proyecto a "el borrado físico es la convención por defecto"): una transacción borrada dispara la reversión de su efecto sobre el saldo, y desaparece de listados y detalle. No hay endpoint de restauración en v1, aunque el propio trigger de balance ya sabe revertir ese caso si algún día hace falta exponerlo.
 - Igual que en el resto de dominios, un error de autorización nunca se enmascara como recurso inexistente: no pertenecer al grupo de la cuenta da `403`, nunca `404`. Un `transaction_id` que no cuadra con el `account_id` de la ruta sí da `404` (no `403`): la pertenencia al grupo ya ha quedado demostrada por el propio `account_id`, no es un fallo de autorización.
@@ -84,7 +84,7 @@ Requiere pertenencia al grupo de la cuenta.
 
 - Filtros de listado (por categoría, rango de fechas, tipo) — el único parámetro de `GET` es la paginación (`limit`/`offset`).
 - Restaurar una transacción borrada lógicamente — el trigger de balance lo soporta a nivel de base de datos, pero ningún endpoint lo expone.
-- Editar `type`, `account_id` o `to_account_id` de una transacción ya creada.
+- Editar `account_id` o `to_account_id` de una transacción ya creada, o cambiar `type` hacia/desde `transfer`.
 - Una restricción de base de datos que garantice que todo `transfer_group_id` tiene exactamente dos filas (por ejemplo, un `CONSTRAINT TRIGGER ... DEFERRABLE` verificado al final de la transacción) — el par se crea siempre junto, en la misma petición/commit, desde `service.py`; se deja como posible mejora futura si alguna vez se necesita blindarlo también contra un `INSERT` manual incompleto.
 - Propagar un `DELETE` físico directo entre las dos patas de una transferencia — no lo cubre ningún trigger, pero tampoco hay ningún endpoint que exponga borrado físico (ver punto anterior de `ARCHITECTURE.md` §8.2).
 - `ocr_receipt_ref`: columna reservada en el diseño de referencia para una futura integración de reconocimiento de recibos (identificador de un documento en MongoDB); ningún endpoint de v1 la lee ni la escribe.
@@ -104,6 +104,8 @@ Requiere pertenencia al grupo de la cuenta.
 - Crear un `income`/`expense` con `category_id` de otro grupo devuelve `409`, sin crear la transacción.
 - Crear un `transfer` con `category_id` devuelve `422`, sin llegar a la base de datos.
 - Tras borrar una transacción, su `GET` por id devuelve `404` y deja de aparecer en el listado paginado de la cuenta, aunque la fila sigue en base de datos.
+- Cambiar el `type` de un `expense` a `income` sin mandar `amount` invierte el signo almacenado (misma magnitud) y ajusta el saldo en consecuencia.
+- Intentar poner `type = transfer` en un `PATCH` devuelve `422`; intentar cambiar el `type` de una transacción que ya es `transfer` devuelve `409`.
 - Un `PATCH` sin ningún campo devuelve `400`, sin aplicar ningún cambio.
 - Un miembro con rol `member` (no solo `owner`/`admin`) puede crear, editar y borrar transacciones sin recibir `403`.
 - Un usuario sin pertenencia al grupo de la cuenta recibe `403` al operar sobre cualquiera de sus transacciones; un `transaction_id` que no pertenece a `account_id` devuelve `404`, no `403`.
