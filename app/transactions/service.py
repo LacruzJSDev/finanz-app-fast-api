@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 from app.accounts.repository import AccountRepository
 from app.categories.repository import CategoryRepository
-from app.shared.exceptions import ConflictError
+from app.shared.exceptions import ConflictError, NotFoundError
 from app.transactions.commands import CreateTransactionCommand, TransactionRowCommand
 from app.transactions.models import TransactionTypeEnum
 from app.transactions.repository import TransactionRepository
@@ -32,6 +32,18 @@ class TransactionService:
         )
         items = [TransactionRead.model_validate(t) for t in transactions]
         return PaginatedTransactions(items=items, total=total)
+
+    def get_transaction(
+        self, account_id: uuid.UUID, transaction_id: uuid.UUID
+    ) -> TransactionRead:
+        transaction = self.transaction_repo.get_transaction_by_id(transaction_id)
+        if (
+            transaction is None
+            or transaction.account_id != account_id
+            or transaction.deleted_at is not None
+        ):
+            raise NotFoundError("La transacción no existe")
+        return TransactionRead.model_validate(transaction)
 
     def _check_category(
         self, category_id: uuid.UUID | None, group_id: uuid.UUID

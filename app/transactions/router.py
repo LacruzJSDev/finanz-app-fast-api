@@ -49,3 +49,13 @@ def get_transactions(
     return PaginatedResponse[TransactionRead](
         items=result.items, total=result.total, limit=limit, offset=offset
     )
+
+
+@router.get("/{transaction_id}")
+def get_transaction(
+    service: TransactionServiceDep,
+    account_id: uuid.UUID,
+    transaction_id: uuid.UUID,
+    account: RequireAccountMembership,
+) -> TransactionRead:
+    return service.get_transaction(account_id, transaction_id)

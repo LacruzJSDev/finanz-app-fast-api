@@ -55,3 +55,8 @@ class TransactionRepository:
             .all()
         )
         return list(transactions), total
+
+    def get_transaction_by_id(self, transaction_id: uuid.UUID) -> Transaction | None:
+        return self.db.execute(
+            select(Transaction).where(Transaction.id == transaction_id)
+        ).scalar_one_or_none()
