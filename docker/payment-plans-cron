@@ -1,0 +1,10 @@
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+SHELL=/bin/sh
+
+# payment_plans.md §5: materializa a diario los planes de pago vencidos.
+# El propio job hace ". /etc/environment" antes de arrancar: cron no hereda
+# las variables de entorno del contenedor (DATABASE_URL, SECRET_KEY...),
+# así que sin eso Settings() fallaría al arrancar en cada ejecución. cron
+# arranca como root (ver docker-compose.yml) para poder ejecutar la línea
+# como appuser, no como root.
+0 2 * * * appuser . /etc/environment; cd /code && python -m app.payment_plans.run_due >> /proc/1/fd/1 2>&1
