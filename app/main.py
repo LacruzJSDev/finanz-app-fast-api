@@ -4,6 +4,7 @@ from starlette.middleware.cors import CORSMiddleware
 from app.account_groups.router import router as account_groups_router
 from app.accounts.router import router as accounts_router
 from app.auth.router import router as auth_router
+from app.categories.router import router as categories_router
 from app.config import settings
 from app.shared.error_handlers import register_error_handlers
 
@@ -30,6 +31,7 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(account_groups_router, prefix="/api/v1")
 app.include_router(accounts_router, prefix="/api/v1")
+app.include_router(categories_router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["health"])
