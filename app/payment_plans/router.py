@@ -50,3 +50,13 @@ def get_payment_plans(
 ) -> CollectionResponse[PaymentPlanRead]:
     result = service.get_payment_plans(account_id)
     return CollectionResponse[PaymentPlanRead](items=result)
+
+
+@router.get("/{payment_plan_id}")
+def get_payment_plan(
+    service: PaymentPlanServiceDep,
+    account_id: uuid.UUID,
+    payment_plan_id: uuid.UUID,
+    account: RequireAccountMembership,
+) -> PaymentPlanRead:
+    return service.get_payment_plan(account_id, payment_plan_id)

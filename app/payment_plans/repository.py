@@ -47,3 +47,8 @@ class PaymentPlanRepository:
             .all()
         )
         return list(payment_plans)
+
+    def get_payment_plan_by_id(self, payment_plan_id: uuid.UUID) -> PaymentPlan | None:
+        return self.db.execute(
+            select(PaymentPlan).where(PaymentPlan.id == payment_plan_id)
+        ).scalar_one_or_none()

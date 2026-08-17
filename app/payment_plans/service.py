@@ -6,7 +6,7 @@ from app.categories.repository import CategoryRepository
 from app.payment_plans.commands import CreatePaymentPlanCommand
 from app.payment_plans.repository import PaymentPlanRepository
 from app.payment_plans.schemas import PaymentPlanRead
-from app.shared.exceptions import ConflictError
+from app.shared.exceptions import ConflictError, NotFoundError
 from app.transactions.models import TransactionTypeEnum
 
 
@@ -52,3 +52,11 @@ class PaymentPlanService:
             account_id
         )
         return [PaymentPlanRead.model_validate(p) for p in payment_plans]
+
+    def get_payment_plan(
+        self, account_id: uuid.UUID, payment_plan_id: uuid.UUID
+    ) -> PaymentPlanRead:
+        payment_plan = self.payment_plan_repo.get_payment_plan_by_id(payment_plan_id)
+        if payment_plan is None or payment_plan.account_id != account_id:
+            raise NotFoundError("El plan no existe")
+        return PaymentPlanRead.model_validate(payment_plan)
