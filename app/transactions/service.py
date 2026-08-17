@@ -11,12 +11,27 @@ from app.transactions.schemas import TransactionRead
 
 
 @dataclass
+class PaginatedTransactions:
+    items: list[TransactionRead]
+    total: int
+
+
+@dataclass
 class TransactionService:
     """Lógica de negocio del dominio transactions."""
 
     transaction_repo: TransactionRepository
     account_repo: AccountRepository
     category_repo: CategoryRepository
+
+    def get_transactions(
+        self, account_id: uuid.UUID, limit: int, offset: int
+    ) -> PaginatedTransactions:
+        transactions, total = self.transaction_repo.get_transactions_by_account_id(
+            account_id, limit, offset
+        )
+        items = [TransactionRead.model_validate(t) for t in transactions]
+        return PaginatedTransactions(items=items, total=total)
 
     def _check_category(
         self, category_id: uuid.UUID | None, group_id: uuid.UUID
