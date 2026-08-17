@@ -378,39 +378,61 @@ CREATE TRIGGER trg_check_category_depth
 -- transacción real. to_account_id permite modelar un plan que en
 -- su día se ejecutará como transferencia entre dos cuentas.
 --
--- La consistencia entre category_id y account_id (que ambos
--- pertenezcan al mismo grupo) se impone con trigger, igual que en
--- transactions — ver justificación detallada allí.
+-- type reutiliza transaction_type_enum: un plan es la plantilla de
+-- la transacción que generará, así que necesita saber de antemano
+-- si esa transacción será income, expense o transfer — sin esta
+-- columna no habría forma de saberlo al materializarlo. amount es
+-- siempre una magnitud positiva (chk_amount > 0): a diferencia de
+-- transactions, esta fila no es un movimiento real y no afecta a
+-- ningún balance, así que no necesita signo ni partida doble.
+--
+-- La consistencia entre category_id/to_account_id y type sigue el
+-- mismo criterio estructural que transactions (una transferencia no
+-- admite categoría, income/expense no admiten to_account_id), y la
+-- consistencia entre category_id y account_id (que ambos pertenezcan
+-- al mismo grupo) se impone con trigger, igual que en transactions —
+-- ver justificación detallada allí.
 -- =============================================================
 
 CREATE TABLE payment_plans (
-    id                 UUID                PRIMARY KEY DEFAULT gen_random_uuid(),
-    account_id         UUID                NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
-    to_account_id      UUID                REFERENCES accounts (id) ON DELETE SET NULL,
-    category_id        UUID                REFERENCES categories (id) ON DELETE SET NULL,
-    amount             BIGINT              NOT NULL CHECK (amount > 0),
+    id                 UUID                  PRIMARY KEY DEFAULT gen_random_uuid(),
+    account_id         UUID                  NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    to_account_id      UUID                  REFERENCES accounts (id) ON DELETE SET NULL,
+    category_id        UUID                  REFERENCES categories (id) ON DELETE SET NULL,
+    type               transaction_type_enum NOT NULL,
+    amount             BIGINT                NOT NULL CHECK (amount > 0),
     description        TEXT,
-    next_due_date      DATE                NOT NULL,
+    next_due_date      DATE                  NOT NULL,
     end_date           DATE,
-    is_recurring       BOOLEAN             NOT NULL DEFAULT FALSE,
-    is_active          BOOLEAN             NOT NULL DEFAULT TRUE,
-    frequency_interval INT                 CHECK (frequency_interval > 0),
+    is_recurring       BOOLEAN               NOT NULL DEFAULT FALSE,
+    is_active          BOOLEAN               NOT NULL DEFAULT TRUE,
+    frequency_interval INT                   CHECK (frequency_interval > 0),
     frequency_unit     frequency_unit_enum,
-    created_by         UUID                REFERENCES users (id) ON DELETE SET NULL,
-    updated_by         UUID                REFERENCES users (id) ON DELETE SET NULL,
+    created_by         UUID                  REFERENCES users (id) ON DELETE SET NULL,
+    updated_by         UUID                  REFERENCES users (id) ON DELETE SET NULL,
     created_at         TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at         TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
 
-    -- Un plan recurrente necesita su periodicidad definida; uno
-    -- puntual, no.
+    -- Un plan recurrente necesita su periodicidad y, opcionalmente,
+    -- una fecha de fin; uno puntual no admite ninguna de las dos —
+    -- end_date sin is_recurring no tiene sentido (¿fin de qué
+    -- repetición?).
     CONSTRAINT chk_recurring_fields CHECK (
-        is_recurring = FALSE
-        OR (frequency_interval IS NOT NULL AND frequency_unit IS NOT NULL)
+        (is_recurring = TRUE AND frequency_interval IS NOT NULL AND frequency_unit IS NOT NULL)
+        OR (is_recurring = FALSE AND frequency_interval IS NULL AND frequency_unit IS NULL AND end_date IS NULL)
     ),
 
-    -- Una transferencia no puede tener origen y destino iguales.
+    CONSTRAINT chk_end_date_after_due CHECK (
+        end_date IS NULL OR end_date >= next_due_date
+    ),
+
     CONSTRAINT chk_transfer_account CHECK (
-        to_account_id IS NULL OR account_id <> to_account_id
+        (type = 'transfer' AND to_account_id IS NOT NULL AND to_account_id <> account_id)
+        OR (type <> 'transfer' AND to_account_id IS NULL)
+    ),
+
+    CONSTRAINT chk_transfer_no_category CHECK (
+        type <> 'transfer' OR category_id IS NULL
     )
 );
 
