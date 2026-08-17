@@ -11,7 +11,18 @@ from app.shared.error_handlers import register_error_handlers
 from app.shared.openapi_responses import VALIDATION_ERROR
 from app.transactions.router import router as transactions_router
 
-app = FastAPI(title="FinanzApp API", version="0.1.0")
+# /docs, /redoc y /openapi.json solo en desarrollo: exponerlos en producción
+# publica la forma completa de la API (rutas, modelos, nombres de campos) a
+# cualquiera en internet. El frontend genera sus tipos a partir de ellos en
+# tiempo de build, no los necesita en caliente contra producción.
+_docs_enabled = settings.ENVIRONMENT != "production"
+app = FastAPI(
+    title="FinanzApp API",
+    version="0.1.0",
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url="/redoc" if _docs_enabled else None,
+    openapi_url="/openapi.json" if _docs_enabled else None,
+)
 
 # Unifica la forma de TODAS las respuestas de error (ver ARCHITECTURE.md §5.6).
 register_error_handlers(app)
