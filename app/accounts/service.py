@@ -24,9 +24,10 @@ class AccountService:
         accounts_group_currency = {
             account.currency for account in accounts_group if account.is_active
         }
+        effective_currency = account_command.currency or "EUR"
         if (
             len(accounts_group_currency) > 0
-            and account_command.currency not in accounts_group_currency
+            and effective_currency not in accounts_group_currency
         ):
             raise ConflictError(
                 "La moneda no corresponde a las monedas usadas en el grupo de cuentas"
