@@ -5,7 +5,7 @@ from fastapi import APIRouter, Query, status
 
 from app.account_groups.dependencies import RequireMembership, RequireOwnerOrAdmin
 from app.categories.commands import CategoryCommand
-from app.categories.dependencies import CategoryServiceDep
+from app.categories.dependencies import CategoryServiceDep, RequireCategoryAccess
 from app.categories.schemas import CategoryRead, CreateCategoryRequest
 from app.shared.dependencies import CurrentUser
 from app.shared.schemas import CollectionResponse
@@ -43,3 +43,12 @@ def get_categories(
 ) -> CollectionResponse[CategoryRead]:
     result = service.get_categories(group_id)
     return CollectionResponse[CategoryRead](items=result)
+
+
+@router.get("/{category_id}")
+def get_category(
+    service: CategoryServiceDep,
+    category_id: uuid.UUID,
+    category: RequireCategoryAccess,
+) -> CategoryRead:
+    return service.get_category(category_id)

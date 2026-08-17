@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from app.categories.commands import CategoryCommand
 from app.categories.repository import CategoryRepository
 from app.categories.schemas import CategoryRead
-from app.shared.exceptions import ConflictError
+from app.shared.exceptions import ConflictError, NotFoundError
 
 
 @dataclass
@@ -37,3 +37,9 @@ class CategoryService:
     def get_categories(self, group_id: uuid.UUID) -> list[CategoryRead]:
         categories = self.category_repo.get_categories_by_group_id(group_id)
         return [CategoryRead.model_validate(category) for category in categories]
+
+    def get_category(self, category_id: uuid.UUID) -> CategoryRead:
+        category = self.category_repo.get_category_by_id(category_id)
+        if category is None:
+            raise NotFoundError("La categoría no existe")
+        return CategoryRead.model_validate(category)
