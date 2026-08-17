@@ -1,6 +1,7 @@
 import uuid
 from dataclasses import dataclass
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.payment_plans.commands import CreatePaymentPlanCommand
@@ -34,3 +35,15 @@ class PaymentPlanRepository:
         self.db.add(payment_plan)
         self.db.flush()
         return payment_plan
+
+    def get_payment_plans_by_account_id(
+        self, account_id: uuid.UUID
+    ) -> list[PaymentPlan]:
+        payment_plans = (
+            self.db.execute(
+                select(PaymentPlan).where(PaymentPlan.account_id == account_id)
+            )
+            .scalars()
+            .all()
+        )
+        return list(payment_plans)

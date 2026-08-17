@@ -46,3 +46,9 @@ class PaymentPlanService:
 
         payment_plan = self.payment_plan_repo.create_payment_plan(user_id, command)
         return PaymentPlanRead.model_validate(payment_plan)
+
+    def get_payment_plans(self, account_id: uuid.UUID) -> list[PaymentPlanRead]:
+        payment_plans = self.payment_plan_repo.get_payment_plans_by_account_id(
+            account_id
+        )
+        return [PaymentPlanRead.model_validate(p) for p in payment_plans]

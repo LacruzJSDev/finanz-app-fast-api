@@ -2,11 +2,15 @@ import uuid
 
 from fastapi import APIRouter, status
 
-from app.accounts.dependencies import RequireAccountOwnerOrAdmin
+from app.accounts.dependencies import (
+    RequireAccountMembership,
+    RequireAccountOwnerOrAdmin,
+)
 from app.payment_plans.commands import CreatePaymentPlanCommand
 from app.payment_plans.dependencies import PaymentPlanServiceDep
 from app.payment_plans.schemas import CreatePaymentPlanRequest, PaymentPlanRead
 from app.shared.dependencies import CurrentUser
+from app.shared.schemas import CollectionResponse
 
 router = APIRouter(
     prefix="/accounts/{account_id}/payment-plans", tags=["payment-plans"]
@@ -36,3 +40,13 @@ def create_payment_plan(
         frequency_unit=payload.frequency_unit,
     )
     return service.create_payment_plan(user.id, command)
+
+
+@router.get("/")
+def get_payment_plans(
+    service: PaymentPlanServiceDep,
+    account_id: uuid.UUID,
+    account: RequireAccountMembership,
+) -> CollectionResponse[PaymentPlanRead]:
+    result = service.get_payment_plans(account_id)
+    return CollectionResponse[PaymentPlanRead](items=result)
