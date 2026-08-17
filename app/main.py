@@ -10,6 +10,7 @@ from app.payment_plans.router import router as payment_plans_router
 from app.shared.error_handlers import register_error_handlers
 from app.shared.openapi_responses import VALIDATION_ERROR
 from app.transactions.router import router as transactions_router
+from app.users.router import router as users_router
 
 # /docs, /redoc y /openapi.json solo en desarrollo: exponerlos en producción
 # publica la forma completa de la API (rutas, modelos, nombres de campos) a
@@ -51,6 +52,7 @@ app.include_router(accounts_router, prefix="/api/v1", responses=VALIDATION_ERROR
 app.include_router(categories_router, prefix="/api/v1", responses=VALIDATION_ERROR)
 app.include_router(transactions_router, prefix="/api/v1", responses=VALIDATION_ERROR)
 app.include_router(payment_plans_router, prefix="/api/v1", responses=VALIDATION_ERROR)
+app.include_router(users_router, prefix="/api/v1", responses=VALIDATION_ERROR)
 
 
 @app.get("/health", tags=["health"])
