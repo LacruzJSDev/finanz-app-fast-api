@@ -5,7 +5,7 @@ from fastapi import APIRouter, Query, status
 
 from app.account_groups.dependencies import RequireMembership, RequireOwnerOrAdmin
 from app.accounts.commands import AccountCommand
-from app.accounts.dependencies import AccountServiceDep
+from app.accounts.dependencies import AccountServiceDep, VerifyAccountAccess
 from app.accounts.schemas import AccountRead, CreateAccountRequest
 from app.shared.dependencies import CurrentUser
 from app.shared.schemas import CollectionResponse
@@ -47,3 +47,10 @@ def get_accounts(
     result = service.get_accounts(group_id)
     collection_response = CollectionResponse[AccountRead](items=result)
     return collection_response
+
+
+@router.get("/{account_id}")
+def get_account(
+    service: AccountServiceDep, account_id: uuid.UUID, account: VerifyAccountAccess
+) -> AccountRead:
+    return service.get_account(account_id)

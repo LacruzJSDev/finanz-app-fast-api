@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from app.accounts.commands import AccountCommand
 from app.accounts.repository import AccountRepository
 from app.accounts.schemas import AccountRead
-from app.shared.exceptions import ConflictError
+from app.shared.exceptions import ConflictError, NotFoundError
 
 
 @dataclass
@@ -41,3 +41,10 @@ class AccountService:
             AccountRead.model_validate(account) for account in accounts
         ]
         return accounts_read
+
+    def get_account(self, account_id: uuid.UUID) -> AccountRead:
+        account = self.account_repo.get_account_by_id(account_id)
+        if account is None:
+            raise NotFoundError("La cuenta no existe")
+        account_read = AccountRead.model_validate(account)
+        return account_read

@@ -50,3 +50,8 @@ class AccountRepository:
             .all()
         )
         return list(accounts)
+
+    def get_account_by_id(self, account_id: uuid.UUID) -> Account | None:
+        return self.db.execute(
+            select(Account).where(Account.id == account_id)
+        ).scalar_one_or_none()
