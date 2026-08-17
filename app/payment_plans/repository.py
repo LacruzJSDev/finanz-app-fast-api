@@ -111,3 +111,19 @@ class PaymentPlanRepository:
             .values(**values)
             .returning(PaymentPlan)
         ).scalar_one()
+
+    def advance_next_due_date(
+        self, payment_plan_id: uuid.UUID, next_due_date: date_
+    ) -> None:
+        self.db.execute(
+            update(PaymentPlan)
+            .where(PaymentPlan.id == payment_plan_id)
+            .values(next_due_date=next_due_date)
+        )
+
+    def deactivate_payment_plan(self, payment_plan_id: uuid.UUID) -> None:
+        self.db.execute(
+            update(PaymentPlan)
+            .where(PaymentPlan.id == payment_plan_id)
+            .values(is_active=False)
+        )
