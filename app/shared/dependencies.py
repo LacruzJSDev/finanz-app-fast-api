@@ -1,7 +1,8 @@
 import uuid
 from typing import Annotated
 
-from fastapi import Depends, Request
+from fastapi import Depends
+from fastapi.security import APIKeyCookie
 from jose import JWTError
 from sqlalchemy.orm import Session
 
@@ -20,8 +21,17 @@ DbSession = Annotated[Session, Depends(get_db)]
 ACCESS_TOKEN_COOKIE = "access_token"
 REFRESH_TOKEN_COOKIE = "refresh_token"
 
+# auto_error=False: el 401 lo lanzamos nosotros como UnauthorizedError, con
+# la forma de error única del proyecto.
+_access_token_scheme = APIKeyCookie(
+    name=ACCESS_TOKEN_COOKIE, scheme_name="AccessTokenCookie", auto_error=False
+)
 
-def get_current_user(request: Request, db: DbSession) -> User:
+
+def get_current_user(
+    db: DbSession,
+    access_token: Annotated[str | None, Depends(_access_token_scheme)],
+) -> User:
     """Resuelve el usuario autenticado a partir de la cookie `access_token`.
 
     Vive en shared y no en auth/: es la dependencia base de cualquier
@@ -32,7 +42,6 @@ def get_current_user(request: Request, db: DbSession) -> User:
     users/dependencies.py necesita DbSession, definida en este mismo módulo.
     """
     user_repo = UserRepository(db)
-    access_token = request.cookies.get(ACCESS_TOKEN_COOKIE)
     if access_token is None:
         raise UnauthorizedError("No autenticado")
 
@@ -51,3 +60,12 @@ def get_current_user(request: Request, db: DbSession) -> User:
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+# scheme_name propio: sin él, las dos instancias de APIKeyCookie comparten el
+# mismo nombre de esquema por defecto, y /docs acaba diciendo que
+# /auth/refresh necesita la cookie access_token en vez de refresh_token.
+_refresh_token_scheme = APIKeyCookie(
+    name=REFRESH_TOKEN_COOKIE, scheme_name="RefreshTokenCookie", auto_error=False
+)
+
+RefreshToken = Annotated[str | None, Depends(_refresh_token_scheme)]

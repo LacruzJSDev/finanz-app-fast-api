@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Response, status
+from fastapi import APIRouter, Response, status
 
 from app.auth.dependencies import AuthServiceDep
 from app.auth.schemas import ChangePasswordRequest, LoginRequest, RegisterRequest
@@ -8,6 +8,7 @@ from app.shared.dependencies import (
     ACCESS_TOKEN_COOKIE,
     REFRESH_TOKEN_COOKIE,
     CurrentUser,
+    RefreshToken,
 )
 from app.shared.exceptions import UnauthorizedError
 from app.users.schemas import UserRead
@@ -69,9 +70,8 @@ def register(
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(service: AuthServiceDep, request: Request, response: Response):
+def logout(service: AuthServiceDep, refresh_token: RefreshToken, response: Response):
     """Cierra la sesión actual del usuario."""
-    refresh_token = request.cookies.get(REFRESH_TOKEN_COOKIE)
     if refresh_token is None:
         raise UnauthorizedError("Refresh token no presente en la petición")
     service.logout(refresh_token)
@@ -80,9 +80,10 @@ def logout(service: AuthServiceDep, request: Request, response: Response):
 
 
 @router.post("/refresh")
-def refresh(service: AuthServiceDep, request: Request, response: Response) -> UserRead:
+def refresh(
+    service: AuthServiceDep, refresh_token: RefreshToken, response: Response
+) -> UserRead:
     """Refresca el token y lo rota."""
-    refresh_token = request.cookies.get(REFRESH_TOKEN_COOKIE)
     if refresh_token is None:
         raise UnauthorizedError("Refresh token no presente en la petición")
     result = service.refresh(refresh_token)
