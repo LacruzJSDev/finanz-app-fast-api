@@ -14,6 +14,16 @@ class CreateCategoryRequest(BaseModel):
     icon: str | None = Field(default=None, max_length=50)
 
 
+class UpdateCategoryRequest(BaseModel):
+    """Cuerpo de PATCH /categories/{category_id}"""
+
+    name: str | None = Field(default=None)
+    parent_id: uuid.UUID | None = Field(default=None)
+    color: str | None = Field(default=None, min_length=4, max_length=7)
+    icon: str | None = Field(default=None, max_length=50)
+    is_active: bool | None = Field(default=None)
+
+
 class CategoryRead(BaseModel):
     """Representación pública de una categoría"""
 

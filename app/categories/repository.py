@@ -1,10 +1,10 @@
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import exists, select, update
 from sqlalchemy.orm import Session
 
-from app.categories.commands import CategoryCommand
+from app.categories.commands import CategoryCommand, UpdateCategoryCommand
 from app.categories.models import Category
 
 
@@ -48,3 +48,32 @@ class CategoryRepository:
         return self.db.execute(
             select(Category).where(Category.id == category_id)
         ).scalar_one_or_none()
+
+    def has_children(self, category_id: uuid.UUID) -> bool:
+        return bool(
+            self.db.execute(
+                select(exists().where(Category.parent_id == category_id))
+            ).scalar_one()
+        )
+
+    def update_category(
+        self, category_id: uuid.UUID, category: UpdateCategoryCommand
+    ) -> Category:
+        values: dict[str, uuid.UUID | str | bool | None] = {}
+        if category.name is not None:
+            values["name"] = category.name
+        if category.parent_id is not None:
+            values["parent_id"] = category.parent_id
+        if category.color is not None:
+            values["color"] = category.color
+        if category.icon is not None:
+            values["icon"] = category.icon
+        if category.is_active is not None:
+            values["is_active"] = category.is_active
+
+        return self.db.execute(
+            update(Category)
+            .where(Category.id == category_id)
+            .values(**values)
+            .returning(Category)
+        ).scalar_one()

@@ -4,9 +4,17 @@ from typing import Annotated
 from fastapi import APIRouter, Query, status
 
 from app.account_groups.dependencies import RequireMembership, RequireOwnerOrAdmin
-from app.categories.commands import CategoryCommand
-from app.categories.dependencies import CategoryServiceDep, RequireCategoryAccess
-from app.categories.schemas import CategoryRead, CreateCategoryRequest
+from app.categories.commands import CategoryCommand, UpdateCategoryCommand
+from app.categories.dependencies import (
+    CategoryServiceDep,
+    RequireCategoryMembership,
+    RequireCategoryOwnerOrAdmin,
+)
+from app.categories.schemas import (
+    CategoryRead,
+    CreateCategoryRequest,
+    UpdateCategoryRequest,
+)
 from app.shared.dependencies import CurrentUser
 from app.shared.schemas import CollectionResponse
 
@@ -49,6 +57,24 @@ def get_categories(
 def get_category(
     service: CategoryServiceDep,
     category_id: uuid.UUID,
-    category: RequireCategoryAccess,
+    category: RequireCategoryMembership,
 ) -> CategoryRead:
     return service.get_category(category_id)
+
+
+@router.patch("/{category_id}")
+def update_category(
+    payload: UpdateCategoryRequest,
+    service: CategoryServiceDep,
+    category_id: uuid.UUID,
+    category: RequireCategoryOwnerOrAdmin,
+) -> CategoryRead:
+    fields_set = payload.model_fields_set
+    update_category_command = UpdateCategoryCommand(
+        name=payload.name if "name" in fields_set else None,
+        parent_id=payload.parent_id if "parent_id" in fields_set else None,
+        color=payload.color if "color" in fields_set else None,
+        icon=payload.icon if "icon" in fields_set else None,
+        is_active=payload.is_active if "is_active" in fields_set else None,
+    )
+    return service.update_category(category_id, update_category_command)
