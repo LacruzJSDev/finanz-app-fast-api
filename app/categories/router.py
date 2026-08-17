@@ -3,11 +3,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query, status
 
-from app.account_groups.dependencies import RequireOwnerOrAdmin
+from app.account_groups.dependencies import RequireMembership, RequireOwnerOrAdmin
 from app.categories.commands import CategoryCommand
 from app.categories.dependencies import CategoryServiceDep
 from app.categories.schemas import CategoryRead, CreateCategoryRequest
 from app.shared.dependencies import CurrentUser
+from app.shared.schemas import CollectionResponse
 
 router = APIRouter(prefix="/categories", tags=["categories"])
 
@@ -34,3 +35,11 @@ def create_category(
         icon=payload.icon,
     )
     return service.create_category(user.id, category_command)
+
+
+@router.get("/")
+def get_categories(
+    service: CategoryServiceDep, group_id: GroupIdQuery, membership: RequireMembership
+) -> CollectionResponse[CategoryRead]:
+    result = service.get_categories(group_id)
+    return CollectionResponse[CategoryRead](items=result)

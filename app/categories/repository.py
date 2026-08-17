@@ -36,6 +36,14 @@ class CategoryRepository:
         self.db.flush()
         return category
 
+    def get_categories_by_group_id(self, group_id: uuid.UUID) -> list[Category]:
+        categories = (
+            self.db.execute(select(Category).where(Category.group_id == group_id))
+            .scalars()
+            .all()
+        )
+        return list(categories)
+
     def get_category_by_id(self, category_id: uuid.UUID) -> Category | None:
         return self.db.execute(
             select(Category).where(Category.id == category_id)

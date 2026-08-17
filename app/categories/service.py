@@ -33,3 +33,7 @@ class CategoryService:
             self._check_parent(category_command.parent_id, category_command.group_id)
         category = self.category_repo.create_category(user_id, category_command)
         return CategoryRead.model_validate(category)
+
+    def get_categories(self, group_id: uuid.UUID) -> list[CategoryRead]:
+        categories = self.category_repo.get_categories_by_group_id(group_id)
+        return [CategoryRead.model_validate(category) for category in categories]
