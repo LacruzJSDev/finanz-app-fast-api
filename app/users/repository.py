@@ -1,9 +1,10 @@
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from app.users.commands import UpdateUserCommand
 from app.users.models import User
 
 
@@ -39,3 +40,14 @@ class UserRepository:
         )
 
         return list(users)
+
+    def update_user(self, user_id: uuid.UUID, command: UpdateUserCommand) -> User:
+        values: dict[str, str] = {}
+        if command.name is not None:
+            values["name"] = command.name
+        if command.email is not None:
+            values["email"] = command.email
+
+        return self.db.execute(
+            update(User).where(User.id == user_id).values(**values).returning(User)
+        ).scalar_one()

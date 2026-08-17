@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
 
 class UserRead(BaseModel):
@@ -29,3 +29,10 @@ def normalize_email(value: str) -> str:
 
 
 NormalizedEmail = Annotated[str, BeforeValidator(normalize_email)]
+
+
+class UpdateUserRequest(BaseModel):
+    """Cuerpo de PATCH /me"""
+
+    name: str | None = Field(default=None)
+    email: NormalizedEmail | None = Field(default=None)
