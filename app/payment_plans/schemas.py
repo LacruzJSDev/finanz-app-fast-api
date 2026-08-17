@@ -52,6 +52,50 @@ class CreatePaymentPlanRequest(BaseModel):
         return self
 
 
+class UpdatePaymentPlanRequest(BaseModel):
+    amount: int | None = Field(default=None, gt=0)
+    type: TransactionTypeEnum | None = Field(default=None)
+    category_id: uuid.UUID | None = Field(default=None)
+    description: str | None = Field(default=None)
+    next_due_date: date_ | None = Field(default=None)
+    end_date: date_ | None = Field(default=None)
+    is_recurring: bool | None = Field(default=None)
+    frequency_interval: int | None = Field(default=None, gt=0)
+    frequency_unit: FrequencyUnitEnum | None = Field(default=None)
+    is_active: bool | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def check_consistency(self) -> Self:
+        if self.type == TransactionTypeEnum.TRANSFER:
+            raise ValueError("No se puede cambiar el tipo a transferencia")
+
+        if self.is_recurring is True:
+            if self.frequency_interval is None or self.frequency_unit is None:
+                raise ValueError(
+                    "Activar is_recurring necesita frequency_interval y "
+                    "frequency_unit en la misma petición"
+                )
+        elif self.is_recurring is False:
+            if (
+                self.frequency_interval is not None
+                or self.frequency_unit is not None
+                or self.end_date is not None
+            ):
+                raise ValueError(
+                    "Desactivar is_recurring no admite frequency_interval, "
+                    "frequency_unit ni end_date en la misma petición"
+                )
+
+        if (
+            self.end_date is not None
+            and self.next_due_date is not None
+            and self.end_date < self.next_due_date
+        ):
+            raise ValueError("end_date no puede ser anterior a next_due_date")
+
+        return self
+
+
 class PaymentPlanRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

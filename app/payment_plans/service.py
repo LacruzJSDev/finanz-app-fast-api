@@ -3,10 +3,13 @@ from dataclasses import dataclass
 
 from app.accounts.repository import AccountRepository
 from app.categories.repository import CategoryRepository
-from app.payment_plans.commands import CreatePaymentPlanCommand
+from app.payment_plans.commands import (
+    CreatePaymentPlanCommand,
+    UpdatePaymentPlanCommand,
+)
 from app.payment_plans.repository import PaymentPlanRepository
 from app.payment_plans.schemas import PaymentPlanRead
-from app.shared.exceptions import ConflictError, NotFoundError
+from app.shared.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.transactions.models import TransactionTypeEnum
 
 
@@ -60,3 +63,93 @@ class PaymentPlanService:
         if payment_plan is None or payment_plan.account_id != account_id:
             raise NotFoundError("El plan no existe")
         return PaymentPlanRead.model_validate(payment_plan)
+
+    def update_payment_plan(
+        self,
+        account_id: uuid.UUID,
+        payment_plan_id: uuid.UUID,
+        command: UpdatePaymentPlanCommand,
+    ) -> PaymentPlanRead:
+        fields = (
+            command.amount,
+            command.type,
+            command.category_id,
+            command.description,
+            command.next_due_date,
+            command.end_date,
+            command.is_recurring,
+            command.frequency_interval,
+            command.frequency_unit,
+            command.is_active,
+        )
+        if all(field is None for field in fields):
+            raise BadRequestError("Debes incluir al menos un campo para actualizar")
+
+        payment_plan = self.payment_plan_repo.get_payment_plan_by_id(payment_plan_id)
+        if payment_plan is None or payment_plan.account_id != account_id:
+            raise NotFoundError("El plan no existe")
+
+        if (
+            command.type is not None
+            and payment_plan.type == TransactionTypeEnum.TRANSFER
+        ):
+            raise ConflictError("No se puede cambiar el tipo de una transferencia")
+        effective_type = command.type or payment_plan.type
+
+        if command.category_id is not None:
+            if effective_type == TransactionTypeEnum.TRANSFER:
+                raise ConflictError("Una transferencia no admite category_id")
+            account = self.account_repo.get_account_by_id(payment_plan.account_id)
+            if account is None:
+                raise NotFoundError("El plan no existe")
+            self._check_category(command.category_id, account.group_id)
+
+        if command.is_recurring is False:
+            effective_is_recurring = False
+            effective_frequency_interval = None
+            effective_frequency_unit = None
+            effective_end_date = None
+        else:
+            effective_is_recurring = (
+                command.is_recurring
+                if command.is_recurring is not None
+                else payment_plan.is_recurring
+            )
+            effective_frequency_interval = (
+                command.frequency_interval
+                if command.frequency_interval is not None
+                else payment_plan.frequency_interval
+            )
+            effective_frequency_unit = (
+                command.frequency_unit
+                if command.frequency_unit is not None
+                else payment_plan.frequency_unit
+            )
+            effective_end_date = (
+                command.end_date
+                if command.end_date is not None
+                else payment_plan.end_date
+            )
+
+        effective_next_due_date = (
+            command.next_due_date
+            if command.next_due_date is not None
+            else payment_plan.next_due_date
+        )
+
+        if effective_is_recurring and (
+            effective_frequency_interval is None or effective_frequency_unit is None
+        ):
+            raise ConflictError(
+                "Un plan recurrente necesita frequency_interval y frequency_unit"
+            )
+        if (
+            effective_end_date is not None
+            and effective_end_date < effective_next_due_date
+        ):
+            raise ConflictError("end_date no puede ser anterior a next_due_date")
+
+        updated_payment_plan = self.payment_plan_repo.update_payment_plan(
+            payment_plan_id, command
+        )
+        return PaymentPlanRead.model_validate(updated_payment_plan)
