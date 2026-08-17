@@ -448,21 +448,39 @@ CREATE TRIGGER trg_check_payment_plan_category_group
 -- =============================================================
 -- TRANSACTIONS
 -- El registro histórico real de movimientos — el corazón de la
--- aplicación. Cada fila afecta al balance de una o dos cuentas
--- (ver triggers más abajo).
+-- aplicación. Cada fila afecta al balance de UNA sola cuenta, la
+-- suya (account_id) — sin excepción, incluidas las transferencias.
 --
--- Convención de signo sobre amount (impuesta por chk_amount_sign):
---   income   > 0  → incrementa el balance de account_id
---   expense  < 0  → decrementa el balance de account_id
---   transfer > 0  → magnitud que sale de account_id y entra en
---                   to_account_id (por eso transfer exige
---                   to_account_id y no admite category_id: una
---                   transferencia no es ni ingreso ni gasto
---                   categorizable, es un movimiento interno).
+-- Un income o un expense es una única fila: el signo de amount
+-- indica su efecto (+ suma, - resta), impuesto por chk_amount_sign.
+--
+-- Una transferencia es SIEMPRE DOS filas — partida doble, no una
+-- fila con dos cuentas: una en la cuenta de origen (amount
+-- negativo) y otra en la cuenta de destino (amount positivo),
+-- enlazadas por transfer_group_id (un identificador compartido por
+-- las dos, no una autorreferencia de una fila a la otra). Esto es
+-- lo que permite que "balance = suma de amount de mis filas" valga
+-- para cualquier cuenta sin casos especiales, y que el listado de
+-- una cuenta (WHERE account_id = :id) muestre tanto sus
+-- transferencias salientes como las entrantes sin necesitar un OR
+-- contra to_account_id — con el diseño anterior de una sola fila,
+-- una cuenta destino no aparecía nunca en su propio listado.
+--
+-- to_account_id se mantiene en cada fila, pero ahora es solo
+-- informativo (qué cuenta es la contraparte de esta pata) — el
+-- cálculo de balance ya no lo usa.
+--
+-- Mantener las dos patas sincronizadas (importe con signo
+-- invertido, misma fecha, mismas notas, mismo borrado lógico) es
+-- responsabilidad de un trigger, trg_sync_transfer_pair, no de la
+-- aplicación: así ni un UPDATE hecho a mano en psql puede
+-- descuadrar el par.
 --
 -- deleted_at implementa borrado lógico: en un libro contable el
 -- historial es el producto, así que una transacción se archiva
--- (con marca de cuándo) en vez de eliminarse físicamente.
+-- (con marca de cuándo) en vez de eliminarse físicamente. Borrar
+-- (o restaurar) una pata de una transferencia borra (o restaura)
+-- la otra, vía el mismo trg_sync_transfer_pair.
 --
 -- ocr_receipt_ref guarda, como texto, el identificador del
 -- documento correspondiente en MongoDB cuando la transacción se
@@ -477,6 +495,7 @@ CREATE TABLE transactions (
     to_account_id     UUID                  REFERENCES accounts (id) ON DELETE SET NULL,
     category_id       UUID                  REFERENCES categories (id) ON DELETE SET NULL,
     payment_plan_id   UUID                  REFERENCES payment_plans (id) ON DELETE SET NULL,
+    transfer_group_id UUID,
     amount            BIGINT                NOT NULL CHECK (amount <> 0),
     type              transaction_type_enum NOT NULL,
     date              DATE                  NOT NULL,
@@ -497,37 +516,47 @@ CREATE TABLE transactions (
         OR (type <> 'transfer' AND to_account_id IS NULL)
     ),
 
+    -- Cada pata de una transferencia necesita saber a qué par
+    -- pertenece; income/expense, al ser una única fila, no tienen
+    -- con quién enlazarse.
+    CONSTRAINT chk_transfer_group CHECK (
+        (type = 'transfer' AND transfer_group_id IS NOT NULL)
+        OR (type <> 'transfer' AND transfer_group_id IS NULL)
+    ),
+
+    -- transfer ya no exige amount > 0: con partida doble, la pata
+    -- de origen es negativa y la de destino positiva, igual que
+    -- expense/income — solo se exige que no sea cero.
     CONSTRAINT chk_amount_sign CHECK (
         (type = 'income'   AND amount > 0) OR
         (type = 'expense'  AND amount < 0) OR
-        (type = 'transfer' AND amount > 0)
+        (type = 'transfer' AND amount <> 0)
     )
 );
 
-CREATE INDEX idx_transactions_account_id      ON transactions (account_id);
-CREATE INDEX idx_transactions_date            ON transactions (date);
-CREATE INDEX idx_transactions_payment_plan_id ON transactions (payment_plan_id);
-CREATE INDEX idx_transactions_type            ON transactions (type);
+CREATE INDEX idx_transactions_account_id        ON transactions (account_id);
+CREATE INDEX idx_transactions_date              ON transactions (date);
+CREATE INDEX idx_transactions_payment_plan_id   ON transactions (payment_plan_id);
+CREATE INDEX idx_transactions_type              ON transactions (type);
+CREATE INDEX idx_transactions_transfer_group_id ON transactions (transfer_group_id)
+    WHERE transfer_group_id IS NOT NULL;
 
 CREATE TRIGGER trg_transactions_set_updated_at
     BEFORE UPDATE ON transactions
     FOR EACH ROW
     EXECUTE FUNCTION set_updated_at();
 
--- Aplica el efecto de una transacción (o su reverso) sobre el
--- balance de las cuentas implicadas. p_sign vale +1 al aplicar
--- una fila nueva/actual y -1 al revertir una fila antigua/borrada.
+-- Aplica (o revierte) el efecto de una fila sobre el balance de SU
+-- cuenta. p_sign vale +1 al aplicar una fila nueva/actual y -1 al
+-- revertir una fila antigua/borrada. Ya no distingue por type: con
+-- partida doble cada fila afecta a una sola cuenta, y el signo de
+-- amount ya lleva codificado si suma o resta — sin el caso especial
+-- de dos UPDATE que tenía el diseño de fila única para transfer.
 CREATE OR REPLACE FUNCTION apply_transaction_effect(
-    p_account_id UUID, p_to_account_id UUID, p_amount BIGINT,
-    p_type transaction_type_enum, p_sign INT
+    p_account_id UUID, p_amount BIGINT, p_sign INT
 ) RETURNS VOID AS $$
 BEGIN
-    IF p_type IN ('income', 'expense') THEN
-        UPDATE accounts SET balance = balance + (p_amount * p_sign) WHERE id = p_account_id;
-    ELSIF p_type = 'transfer' THEN
-        UPDATE accounts SET balance = balance - (p_amount * p_sign) WHERE id = p_account_id;
-        UPDATE accounts SET balance = balance + (p_amount * p_sign) WHERE id = p_to_account_id;
-    END IF;
+    UPDATE accounts SET balance = balance + (p_amount * p_sign) WHERE id = p_account_id;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -538,35 +567,35 @@ $$ LANGUAGE plpgsql;
 -- balance). UPDATE distingue explícitamente cuatro casos según cómo
 -- cambia deleted_at, porque el borrado lógico (poner deleted_at) y la
 -- restauración (quitarlo) también deben mover el balance, no solo los
--- cambios de importe/cuenta con la fila siempre activa.
+-- cambios de importe con la fila siempre activa.
 CREATE OR REPLACE FUNCTION trg_transactions_balance()
 RETURNS TRIGGER AS $$
 BEGIN
     IF TG_OP = 'INSERT' THEN
         IF NEW.deleted_at IS NULL THEN
-            PERFORM apply_transaction_effect(NEW.account_id, NEW.to_account_id, NEW.amount, NEW.type, 1);
+            PERFORM apply_transaction_effect(NEW.account_id, NEW.amount, 1);
         END IF;
         RETURN NEW;
 
     ELSIF TG_OP = 'DELETE' THEN
         IF OLD.deleted_at IS NULL THEN
-            PERFORM apply_transaction_effect(OLD.account_id, OLD.to_account_id, OLD.amount, OLD.type, -1);
+            PERFORM apply_transaction_effect(OLD.account_id, OLD.amount, -1);
         END IF;
         RETURN OLD;
 
     ELSIF TG_OP = 'UPDATE' THEN
         IF OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL THEN
             -- Borrado lógico: revierte el efecto, no lo vuelve a aplicar.
-            PERFORM apply_transaction_effect(OLD.account_id, OLD.to_account_id, OLD.amount, OLD.type, -1);
+            PERFORM apply_transaction_effect(OLD.account_id, OLD.amount, -1);
 
         ELSIF OLD.deleted_at IS NOT NULL AND NEW.deleted_at IS NULL THEN
             -- Restauración: aplica el efecto de la fila ya restaurada.
-            PERFORM apply_transaction_effect(NEW.account_id, NEW.to_account_id, NEW.amount, NEW.type, 1);
+            PERFORM apply_transaction_effect(NEW.account_id, NEW.amount, 1);
 
         ELSIF OLD.deleted_at IS NULL AND NEW.deleted_at IS NULL THEN
-            -- Sigue activa: cambio normal de importe, tipo o cuenta.
-            PERFORM apply_transaction_effect(OLD.account_id, OLD.to_account_id, OLD.amount, OLD.type, -1);
-            PERFORM apply_transaction_effect(NEW.account_id, NEW.to_account_id, NEW.amount, NEW.type, 1);
+            -- Sigue activa: cambio normal de importe.
+            PERFORM apply_transaction_effect(OLD.account_id, OLD.amount, -1);
+            PERFORM apply_transaction_effect(NEW.account_id, NEW.amount, 1);
 
         END IF;
         -- Si sigue borrada (edición de metadatos de una fila ya
@@ -582,9 +611,47 @@ CREATE TRIGGER trg_transactions_balance_update
     FOR EACH ROW
     EXECUTE FUNCTION trg_transactions_balance();
 
+-- Mantiene sincronizadas las dos patas de una transferencia:
+-- importe con signo invertido, misma fecha, mismas notas, mismo
+-- borrado lógico. Se dispara sobre la fila que la aplicación edita
+-- directamente y propaga el cambio a su pareja (localizada por
+-- transfer_group_id); esa propagación es en sí misma un UPDATE, así
+-- que sin guarda volvería a disparar este mismo trigger sobre la
+-- fila original, en un ciclo infinito. pg_trigger_depth() > 1 corta
+-- esa recursión: la fila original se edita a profundidad 1, la
+-- propagación a su pareja ocurre a profundidad 2, y ahí se detiene
+-- — la pareja no vuelve a propagar una tercera vez.
+CREATE OR REPLACE FUNCTION sync_transfer_pair()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF pg_trigger_depth() > 1 THEN
+        RETURN NEW;
+    END IF;
+
+    UPDATE transactions
+    SET amount     = -NEW.amount,
+        date       = NEW.date,
+        notes      = NEW.notes,
+        deleted_at = NEW.deleted_at,
+        updated_by = NEW.updated_by
+    WHERE transfer_group_id = NEW.transfer_group_id
+      AND id <> NEW.id;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_sync_transfer_pair
+    AFTER UPDATE ON transactions
+    FOR EACH ROW
+    WHEN (NEW.type = 'transfer')
+    EXECUTE FUNCTION sync_transfer_pair();
+
 -- Invariante de integridad cruzada que una FK normal no puede
 -- expresar: la categoría de una transacción debe pertenecer al
--- mismo grupo que su cuenta.
+-- mismo grupo que su cuenta. En la práctica solo se ejercita sobre
+-- income/expense: category_id ya está prohibido en transfer por
+-- chk_transfer_no_category.
 CREATE OR REPLACE FUNCTION check_transaction_category_group()
 RETURNS TRIGGER AS $$
 DECLARE
