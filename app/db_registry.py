@@ -2,6 +2,7 @@ from app.account_groups.models import AccountGroup, AccountGroupMember, Invitati
 from app.accounts.models import Account
 from app.auth.models import AuthProvider, UserSession
 from app.categories.models import Category
+from app.transactions.models import Transaction
 from app.users.models import User
 
 __all__ = [
@@ -13,4 +14,5 @@ __all__ = [
     "Invitation",
     "Account",
     "Category",
+    "Transaction",
 ]
