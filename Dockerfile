@@ -37,4 +37,7 @@ RUN chmod 0644 /etc/cron.d/payment-plans-cron
 USER appuser
 
 ENTRYPOINT ["./entrypoint.sh"]
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# app/run.py decide --reload y el formato de logs (texto en desarrollo, JSON
+# para Loki en producción) según ENVIRONMENT, así que el mismo CMD sirve para
+# ambos y docker-compose.override.yml no necesita sobrescribirlo.
+CMD ["python", "-m", "app.run"]
