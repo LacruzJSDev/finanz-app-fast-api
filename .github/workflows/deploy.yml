@@ -111,7 +111,7 @@ jobs:
           script: |
             set -e
             cd ${{ secrets.VPS_APP_DIR }}
-            docker compose -f docker-compose.yml pull api payment-plans-cron
+            docker compose -f docker-compose.yml pull finanzapp-api finanzapp-payment-plans-cron
             docker compose -f docker-compose.yml up -d
             # Las imágenes viejas se acumulan y llenan el disco del VPS.
             docker image prune -f

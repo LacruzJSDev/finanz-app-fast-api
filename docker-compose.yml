@@ -19,7 +19,7 @@
 # compose pull`. Para volver a una versión anterior sin reconstruir nada,
 # basta con cambiar `:latest` por el `:<sha>` deseado y volver a hacer pull.
 services:
-  api:
+  finanzapp-api:
     image: ghcr.io/lacruzjsdev/finanz-app-fast-api:latest
     container_name: finanzapp-api
     restart: unless-stopped
@@ -39,13 +39,13 @@ services:
       - web
     healthcheck:
       # La imagen es python:3.13-slim y no trae curl, así que se usa urllib.
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      test: [ "CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\"" ]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 20s
 
-  payment-plans-cron:
+  finanzapp-payment-plans-cron:
     image: ghcr.io/lacruzjsdev/finanz-app-fast-api:latest
     container_name: finanzapp-payment-plans-cron
     restart: unless-stopped
@@ -64,7 +64,7 @@ services:
     # api ya las aplica al arrancar, y para cuando el cron dispara por
     # primera vez (payment_plans.md §5) ya llevan horas aplicadas.
     entrypoint: []
-    command: ["./docker/cron-entrypoint.sh"]
+    command: [ "./docker/cron-entrypoint.sh" ]
 
 networks:
   # Red compartida por todo el enjambre de apps del VPS (Caddy, Postgres,
