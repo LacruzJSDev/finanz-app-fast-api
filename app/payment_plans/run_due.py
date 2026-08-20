@@ -1,5 +1,6 @@
 import calendar
 import logging
+import logging.config
 import uuid
 from datetime import date, timedelta
 
@@ -9,6 +10,7 @@ import app.db_registry
 from app.accounts.repository import AccountRepository
 from app.categories.repository import CategoryRepository
 from app.database import SessionLocal
+from app.logging_config import build_log_config
 from app.payment_plans.models import FrequencyUnitEnum, PaymentPlan
 from app.payment_plans.repository import PaymentPlanRepository
 from app.transactions.commands import CreateTransactionCommand
@@ -112,5 +114,5 @@ def run_due_payment_plans() -> None:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    logging.config.dictConfig(build_log_config())
     run_due_payment_plans()
