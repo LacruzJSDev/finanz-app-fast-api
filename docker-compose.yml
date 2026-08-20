@@ -6,29 +6,14 @@
 #
 #   desarrollo:  docker compose up
 #   producción:  docker compose -f docker-compose.yml up -d
+#
+# En producción no hay contenedor `db` ni puerto publicado propios: FinanzApp
+# vive en el mismo VPS que el resto del enjambre de apps (entramaes-infra) y
+# reutiliza su Postgres y su Caddy compartidos a través de la red externa
+# `web`. Antes de desplegar, el usuario/base `finanzapp` deben existir ya
+# dentro de ese Postgres compartido (no se crean solos, a diferencia de un
+# contenedor de Postgres nuevo) — ver .env.example.
 services:
-  db:
-    image: postgres:16
-    container_name: finanzapp-db
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    volumes:
-      - finanzapp_pgdata:/var/lib/postgresql/data
-    # Sin `ports`: en producción la base solo es accesible desde la red interna
-    # de Docker, nunca desde fuera del host. El override la publica en
-    # desarrollo, que es donde sí interesa conectarse con un cliente SQL.
-    healthcheck:
-      # -d comprueba que la base concreta ya existe. Sin él, pg_isready puede
-      # dar "sano" durante la inicialización, antes de que POSTGRES_DB esté
-      # creada, y la api arrancaría contra una base inexistente.
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   api:
     build: .
     container_name: finanzapp-api
@@ -38,16 +23,15 @@ services:
     # .dockerignore lo excluye a propósito.
     env_file: .env
     environment:
-      # Sobrescribe el DATABASE_URL del .env, que apunta a localhost para uso
-      # desde el venv del host. Entre contenedores, el host de la base es el
-      # nombre del servicio (`db`) y el puerto es el interno (5432).
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      # `postgres` es el nombre del servicio compartido en entramaes-infra,
+      # alcanzable por estar en la misma red `web`.
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       ENVIRONMENT: production
-    ports:
-      - "8000:8000"
-    depends_on:
-      db:
-        condition: service_healthy
+    # Sin `ports`: nada entra directo por el 8000 desde fuera del host. El
+    # único camino de entrada es el Caddy compartido del VPS, que también
+    # vive en `web` y reenvía a `finanzapp-api:8000`.
+    networks:
+      - web
     healthcheck:
       # La imagen es python:3.13-slim y no trae curl, así que se usa urllib.
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
@@ -67,16 +51,18 @@ services:
     user: root
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       ENVIRONMENT: production
-    depends_on:
-      db:
-        condition: service_healthy
+    networks:
+      - web
     # No usa el ENTRYPOINT del Dockerfile (aplica migraciones): el servicio
     # api ya las aplica al arrancar, y para cuando el cron dispara por
     # primera vez (payment_plans.md §5) ya llevan horas aplicadas.
     entrypoint: []
     command: ["./docker/cron-entrypoint.sh"]
 
-volumes:
-  finanzapp_pgdata:
+networks:
+  # Red compartida por todo el enjambre de apps del VPS (Caddy, Postgres,
+  # observabilidad...). La crea entramaes-infra, no este proyecto.
+  web:
+    external: true
