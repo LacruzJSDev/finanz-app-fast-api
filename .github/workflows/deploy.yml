@@ -115,3 +115,38 @@ jobs:
             docker compose -f docker-compose.yml up -d
             # Las imágenes viejas se acumulan y llenan el disco del VPS.
             docker image prune -f
+
+  # Este repo es PÚBLICO, así que su paquete no consume cupo de almacenamiento:
+  # GitHub Free da 500 MB por cuenta, pero sólo cobra los paquetes privados.
+  # Aquí la poda es higiene, no necesidad — mantiene el registro legible y evita
+  # arrastrar cientos de versiones muertas. Si el repo pasara a privado, deja de
+  # ser opcional.
+  #
+  # Cada push a main publica una versión :sha que nadie borra: el
+  # `docker image prune` de arriba limpia el daemon del VPS, no el registro.
+  #
+  # GITHUB_TOKEN con `packages: write` basta para borrar; comprobado en la
+  # landing el 21/08/2026, borró 8 versiones. No hace falta ningún PAT.
+  #
+  # OJO: min-versions-to-keep cuenta TODAS las versiones, incluidas las que no
+  # llevan etiqueta, así que la profundidad real de rollback es menor que 10
+  # despliegues.
+  #
+  # Va DESPUÉS del deploy y no bloquea, para que un problema aquí nunca deje un
+  # despliegue a medias.
+  podar-registro:
+    needs: deploy
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      packages: write
+    steps:
+      - uses: actions/delete-package-versions@v5
+        with:
+          owner: LacruzJSDev
+          package-name: finanz-app-fast-api
+          package-type: container
+          min-versions-to-keep: 10
+          # Nunca borrar la que está en producción.
+          ignore-versions: '^latest$'
