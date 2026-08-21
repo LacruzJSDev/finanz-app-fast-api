@@ -27,7 +27,7 @@ env:
   # Una ruta no es un secreto. Estuvo en `secrets.VPS_APP_DIR`, y eso significaba
   # que leyendo el repo no se podía saber dónde despliega, y que un valor mal
   # puesto fallaba con un `cd` críptico. Aquí es visible y versionada.
-  APP_DIR: /opt/entramaes/apps/finanzapp
+  APP_DIR: /opt/entramaes/infra/apps/finanzapp
 
 jobs:
   verify:
