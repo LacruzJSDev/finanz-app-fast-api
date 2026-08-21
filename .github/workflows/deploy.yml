@@ -115,8 +115,12 @@ jobs:
           script: |
             set -e
             cd ${{ env.APP_DIR }}
-            docker compose -f docker-compose.yml pull finanzapp-api finanzapp-payment-plans-cron
-            docker compose -f docker-compose.yml up -d
+            # Sin `-f`: en infra sólo hay compose.yaml y Compose lo detecta solo.
+            # El `-f docker-compose.yml` de antes existía para excluir el
+            # docker-compose.override.yml de desarrollo, que vive en este repo y
+            # no en infra.
+            docker compose pull
+            docker compose up -d
             # Las imágenes viejas se acumulan y llenan el disco del VPS.
             docker image prune -f
 
