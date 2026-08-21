@@ -24,6 +24,10 @@ concurrency:
 
 env:
   IMAGE: ghcr.io/lacruzjsdev/finanz-app-fast-api
+  # Una ruta no es un secreto. Estuvo en `secrets.VPS_APP_DIR`, y eso significaba
+  # que leyendo el repo no se podía saber dónde despliega, y que un valor mal
+  # puesto fallaba con un `cd` críptico. Aquí es visible y versionada.
+  APP_DIR: /opt/entramaes/apps/finanzapp
 
 jobs:
   verify:
@@ -110,7 +114,7 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
             set -e
-            cd ${{ secrets.VPS_APP_DIR }}
+            cd ${{ env.APP_DIR }}
             docker compose -f docker-compose.yml pull finanzapp-api finanzapp-payment-plans-cron
             docker compose -f docker-compose.yml up -d
             # Las imágenes viejas se acumulan y llenan el disco del VPS.
