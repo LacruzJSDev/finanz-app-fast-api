@@ -1,54 +1,59 @@
-# Configuración base = PRODUCCIÓN.
+# Compose de DESARROLLO únicamente.
 #
-# `docker compose up` carga automáticamente docker-compose.override.yml encima
-# de este fichero, así que el comando corto SIEMPRE es desarrollo. Para
-# producción hay que pedir explícitamente solo este fichero:
-#
-#   desarrollo:  docker compose up
-#   producción:  docker compose -f docker-compose.yml up -d
-#
-# En producción no hay contenedor `db` ni puerto publicado propios: FinanzApp
-# vive en el mismo VPS que el resto del enjambre de apps (entramaes-infra) y
-# reutiliza su Postgres y su Caddy compartidos a través de la red externa
-# `web`. Antes de desplegar, el usuario/base `finanzapp` deben existir ya
-# dentro de ese Postgres compartido (no se crean solos, a diferencia de un
-# contenedor de Postgres nuevo) — ver .env.example.
-#
-# Tampoco se construye la imagen aquí: la construye y publica el workflow de
-# GitHub Actions (.github/workflows/deploy.yml), y el VPS solo hace `docker
-# compose pull`. Para volver a una versión anterior sin reconstruir nada,
-# basta con cambiar `:latest` por el `:<sha>` deseado y volver a hacer pull.
+# El compose de producción vive en el repo de infra
+# (entramaes-infra/apps/finanzapp/compose.yaml), que conecta la API al
+# Postgres y al Caddy compartidos del VPS. El despliegue lo hace el workflow
+# de GitHub Actions (.github/workflows/deploy.yml) haciendo `docker compose
+# pull` sobre ese fichero; este de aquí no interviene en producción.
 services:
-  finanzapp-api:
-    image: ghcr.io/lacruzjsdev/finanz-app-fast-api:latest
-    container_name: finanzapp-api
+  db:
+    image: postgres:16
+    container_name: finanzapp-db
     restart: unless-stopped
-    # Todas las variables de Settings (SECRET_KEY, GOOGLE_*, CORS_*...) entran
-    # por aquí, en tiempo de ejecución. El .env NO está dentro de la imagen:
-    # .dockerignore lo excluye a propósito.
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - finanzapp_pgdata:/var/lib/postgresql/data
+    # Publica la base en el host para poder conectarse con un cliente SQL o
+    # ejecutar alembic desde el venv local. 5433 en vez de 5432 para no chocar
+    # con un Postgres instalado directamente en la máquina.
+    ports:
+      - "5433:5432"
+    healthcheck:
+      # -d comprueba que la base concreta ya existe. Sin él, pg_isready puede
+      # dar "sano" durante la inicialización, antes de que POSTGRES_DB esté
+      # creada, y la api arrancaría contra una base inexistente.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    # Monta el código del host dentro del contenedor: al guardar un fichero,
+    # --reload reinicia uvicorn sin necesidad de reconstruir la imagen.
+    volumes:
+      - .:/code
     env_file: .env
     environment:
-      # `postgres` es el nombre del servicio compartido en entramaes-infra,
-      # alcanzable por estar en la misma red `web`.
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      ENVIRONMENT: production
-    # Sin `ports`: nada entra directo por el 8000 desde fuera del host. El
-    # único camino de entrada es el Caddy compartido del VPS, que también
-    # vive en `web` y reenvía a `finanzapp-api:8000`.
-    networks:
-      - web
-    healthcheck:
-      # La imagen es python:3.13-slim y no trae curl, así que se usa urllib.
-      test: [ "CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\"" ]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
+      ENVIRONMENT: development
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      # En macOS y Windows los eventos del sistema de ficheros no cruzan bien
+      # el límite del bind mount; el sondeo periódico es menos eficiente pero
+      # sí detecta los cambios.
+      WATCHFILES_FORCE_POLLING: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+    # Sin `command`: el CMD del Dockerfile (app/run.py) ya activa --reload
+    # solo, al ver ENVIRONMENT=development.
 
-  finanzapp-payment-plans-cron:
-    image: ghcr.io/lacruzjsdev/finanz-app-fast-api:latest
-    container_name: finanzapp-payment-plans-cron
-    restart: unless-stopped
+  payment-plans-cron:
+    build: .
     # cron necesita arrancar como root para poder ejecutar el job como
     # appuser (lo declara el propio /etc/cron.d/payment-plans-cron) — la
     # imagen arranca como appuser por defecto (ver Dockerfile), así que
@@ -56,18 +61,15 @@ services:
     user: root
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      ENVIRONMENT: production
-    networks:
-      - web
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    depends_on:
+      db:
+        condition: service_healthy
     # No usa el ENTRYPOINT del Dockerfile (aplica migraciones): el servicio
     # api ya las aplica al arrancar, y para cuando el cron dispara por
     # primera vez (payment_plans.md §5) ya llevan horas aplicadas.
     entrypoint: []
     command: [ "./docker/cron-entrypoint.sh" ]
 
-networks:
-  # Red compartida por todo el enjambre de apps del VPS (Caddy, Postgres,
-  # observabilidad...). La crea entramaes-infra, no este proyecto.
-  web:
-    external: true
+volumes:
+  finanzapp_pgdata:

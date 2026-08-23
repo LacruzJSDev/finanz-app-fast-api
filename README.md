@@ -40,17 +40,13 @@ pendientes y arranca la API con recarga automática.
 
 ## Desarrollo vs producción
 
-Docker Compose carga `docker-compose.override.yml` encima de
-`docker-compose.yml` **de forma automática**. Es el detalle menos evidente de
-todo el montaje:
-
-| | Comando | Qué cambia |
-|---|---|---|
-| **Desarrollo** | `docker compose up` | Código montado desde el host, `--reload`, Postgres publicado en 5433 |
-| **Producción** | `docker compose -f docker-compose.yml up -d` | Sin bind mount ni reload; la base no se publica fuera de la red de Docker |
-
-Pasar `-f docker-compose.yml` es lo que desactiva el override. Sin ese flag
-siempre estás en desarrollo, aunque `ENVIRONMENT` diga otra cosa.
+El `docker-compose.yml` de este repo es **solo para desarrollo** (código
+montado desde el host, `--reload`, Postgres publicado en 5433). El compose de
+producción vive en el repo de infra
+(`entramaes-infra/apps/finanzapp/compose.yaml`), que conecta la API al
+Postgres y al Caddy compartidos del VPS; el workflow de despliegue
+(`.github/workflows/deploy.yml`) hace `docker compose pull` sobre ese fichero
+al mergear a `main`.
 
 `.env` nunca entra en la imagen (`.dockerignore` lo excluye): las variables se
 inyectan en tiempo de ejecución vía `env_file`. En un despliegue real, `.env`
