@@ -46,7 +46,7 @@ Entre paréntesis, opcional pero recomendable. En este proyecto el ámbito es
 normalmente el dominio o la pieza transversal tocada:
 
 `users`, `auth`, `accounts`, `account-groups`, `categories`, `transactions`,
-`payment-plans`, `db`, `api`, `config`, `docker`, `deps`
+`payment-plans`, `budgets`, `db`, `api`, `config`, `docker`, `deps`
 
 Si un commit toca tantos ámbitos que no sabes cuál poner, probablemente
 deberían ser varios commits.
