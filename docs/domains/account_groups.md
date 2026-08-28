@@ -88,8 +88,34 @@ Identifica la invitación por `invitation_id`, no por `code` — el cliente ya l
 - **Efecto**: valida que la invitación exista para ese `group_id`, esté `pending`, no haya expirado y su `invited_by` siga existiendo (ver regla de negocio sobre invitador borrado); crea la fila en `account_group_members` con el rol de la invitación; marca la invitación como `accepted`, con `accepted_by` y `accepted_at`.
 - **Errores**: `404` si `invitation_id` no existe, **o si existe pero pertenece a un grupo distinto del `group_id` de la ruta** — se trata igual que "no existe", nunca se revela que la invitación es válida para otro grupo. `409` si ya está `accepted`, si ha expirado (por tiempo o porque su `invited_by` ya no existe), o si quien acepta ya es miembro del grupo — todos son transiciones de estado inválidas, no problemas de autorización, por eso `409` y no `403`/`401`.
 
+### `GET /api/v1/account-groups/{group_id}/overview`
+
+Requiere pertenencia al grupo, cualquier rol. **Endpoint de composición** (`ARCHITECTURE.md` §8.3): reúne agregados de `accounts`, `transactions` y `payment_plans` en una sola respuesta, reutilizando los services de esos dominios sin reimplementar sus consultas.
+
+Existe por corrección, no por rendimiento: todos sus bloques tienen que calcularse contra **el mismo `today` y el mismo ancla de cobro**. Pedidos por separado, dos de ellos podrían cruzar la medianoche, o cruzarse con el cron diario que avanza `next_due_date`, y la respuesta mostraría "9 días restantes" junto a una proyección que termina el mes siguiente.
+
+- **Entrada**: nada más que el `group_id` de la ruta.
+- **Salida**: `GroupOverviewRead`, con estos bloques:
+  - `net_worth`, `available`, `account_count` — de `accounts` (`GET /accounts/balance`).
+  - `spent_today`, `transaction_count_today` — de `transactions` (`GET /transactions/daily`).
+  - `payday` — la fecha del ancla de cobro y su importe, o `null` (ver `payment_plans.md` §5).
+  - `pending_fixed_expenses` — los gastos fijos que aún tienen que salir antes del cobro, y su total.
+  - `real_balance` — `available` menos ese total.
+  - `days_remaining`, `daily_safe_spend` — días hasta el cobro y cuánto se puede gastar al día sin quedarse corto.
+  - `projection` — la curva día a día del saldo desde hoy hasta el cobro, restando cada gasto fijo en su fecha.
+- **Sin ancla de cobro**, `payday`, `days_remaining`, `daily_safe_spend` y `projection` van a `null`, pero `net_worth`, `available` y el gasto de hoy **sí se devuelven**. Un resumen que responde `409` porque falta configurar algo es inútil justo cuando más falta hace.
+- No va envuelto en `{items}`: no es una colección (`ARCHITECTURE.md` §5.4). Las listas que contiene dentro, como `projection`, sí son arrays normales dentro del objeto.
+- **Errores**: `403` si el usuario no pertenece al grupo.
+
 ## 5. Reglas de negocio
 
+- **La aritmética de previsión vive en el servidor, no en el cliente.** `real_balance`, `daily_safe_spend` y `projection` son cálculos derivados, y repetirlos en cada cliente garantiza que acaben divergiendo. Además, aquí se pueden probar: son funciones puras de Python que reciben saldo, fechas y planes, y no dependen de la base de datos.
+  - `real_balance = available − Σ(gastos fijos pendientes)`. Se usa `available`, no `net_worth`: el dinero de la cuenta de ahorro no es de donde sale la compra del súper (`accounts.md` §5).
+  - `daily_safe_spend = real_balance / días restantes`, redondeado a la baja, en céntimos.
+  - `projection` es una curva escalonada: parte del saldo de hoy y resta cada gasto fijo el día que vence. Un plan ya vencido (`next_due_date` anterior a hoy, porque el cron aún no ha corrido) se ancla a hoy — su dinero todavía tiene que salir, pero no puede dibujarse antes del inicio de la curva.
+  - **La curva termina el día del cobro pero antes de cobrar**: no suma el ingreso de la nómina. Es "con cuánto llego a fin de ciclo", no "cuánto tendré después de cobrar". Por construcción, su último punto es igual a `real_balance` — los dos restan el mismo conjunto de gastos fijos, así que si alguna vez divergen es que hay un error en uno de los dos.
+  - Se calcula en Python, no con `generate_series` en SQL: son como mucho 31 puntos, así que el SQL no aportaría nada medible, y en cambio una función pura sí se puede probar sin base de datos.
+- **El día del cobro, `days_remaining` vale cero.** Antes de que corra el cron, el ancla todavía apunta a hoy. Dividir por él revienta con `ZeroDivisionError`, y es un fallo garantizado, no hipotético: ocurre una vez al mes, siempre. El divisor se acota a un mínimo de 1.
 - Un grupo siempre tiene al menos un `owner` mientras tenga algún miembro. El único `owner` de un grupo con otros miembros no puede abandonarlo ni ser eliminado, ni puede degradarse su propio rol, sin que antes se promueva a otro miembro a `owner`. Si es además el único miembro del grupo, sí puede abandonarlo — el grupo queda sin miembros, no se borra ni se archiva automáticamente. Esto resuelve la dependencia que `docs/domains/users.md` §6 dejaba abierta sobre la baja de un usuario que sea único `owner` de un grupo con más miembros: ese caso debe bloquearse aquí, en `account_groups`, antes de que `users` pueda implementar `DELETE /me`.
 - Los roles son jerárquicos para las acciones de gestión: `owner` puede todo lo que puede `admin`; `admin` puede invitar y expulsar `member`, pero no a otro `admin` ni a un `owner`. Cualquier miembro, sea cual sea su rol, puede ver los datos del grupo y abandonar voluntariamente (salvo la restricción de único `owner`).
 - Duración de una invitación: 7 días desde su creación. El código no se reutiliza tras aceptarse ni tras expirar; una invitación caducada requiere crear una nueva.
@@ -104,6 +130,9 @@ Identifica la invitación por `invitation_id`, no por `code` — el cliente ya l
 - Roles personalizados más allá de `owner`/`admin`/`member`.
 - Borrado físico de un grupo — solo archivado (`is_active = false`).
 - Transferencia de propiedad como operación dedicada (se resuelve con `PATCH` de rol, ver sección 4).
+- **Configurar el resumen**: `overview` no admite parámetros. No se puede elegir qué bloques devuelve, ni pedirlo con fecha de referencia distinta de hoy, ni cambiar el horizonte de la proyección.
+- **Comparar periodos** ("este mes frente al anterior") o cualquier serie histórica: el resumen describe el estado actual y lo que queda hasta el cobro, nada más.
+- **Cachear el resumen**: se calcula entero en cada petición. A los volúmenes de `ARCHITECTURE.md` §9 no compensa la invalidación.
 
 ## 7. Criterios de aceptación
 
@@ -117,3 +146,15 @@ Identifica la invitación por `invitation_id`, no por `code` — el cliente ya l
 - El único `owner` y único miembro de un grupo sí puede abandonarlo.
 - Un usuario autenticado pero sin pertenencia al grupo recibe `403` al operar sobre él, nunca `404`.
 - Un `admin` que intenta expulsar a un `owner` recibe `403`.
+
+### Resumen del grupo
+
+- Un grupo con nómina mensual el día 5 y dos gastos fijos antes de esa fecha devuelve un `payday` correcto, `real_balance = available − la suma de esos dos gastos`, y una `projection` con un escalón en la fecha de cada uno.
+- Archivar el plan de la nómina deja el resumen respondiendo `200`, con `payday`, `days_remaining`, `daily_safe_spend` y `projection` a `null`, pero `net_worth`, `available` y el gasto de hoy con sus valores reales.
+- Consultado el mismo día del cobro, `days_remaining` es cero y el endpoint responde `200` — no un `500` por división entre cero.
+- El plan de la nómina **no** aparece entre `pending_fixed_expenses`, aunque su fecha esté dentro del rango.
+- Una transferencia programada dentro del rango tampoco aparece entre los gastos fijos pendientes (limitación conocida, `payment_plans.md` §6).
+- El último punto de `projection` coincide exactamente con `real_balance`: la curva termina **el día del cobro pero antes de cobrar**, así que los dos números restan el mismo conjunto de gastos fijos. Si divergen, hay un error en uno de los dos.
+- Con dos gastos fijos que vencen el mismo día, la curva muestra un único escalón que acumula ambos, no dos escalones el mismo día.
+
+> Estos criterios se verifican a mano contra la base real en lo que toca a los agregados; la aritmética (proyección, gasto diario seguro, exclusión del ancla) sí es testeable unitariamente, porque son funciones puras.
