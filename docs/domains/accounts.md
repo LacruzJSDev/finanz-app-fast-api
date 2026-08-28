@@ -32,10 +32,19 @@ Requiere rol `owner` o `admin` en `group_id`.
 
 ### `GET /api/v1/accounts?group_id={group_id}`
 
-Requiere pertenencia al grupo, cualquier rol. `group_id` es obligatorio como query param — no existe un listado global de cuentas de todos los grupos a la vez, mismo principio que ya aplica a `transactions` en `ARCHITECTURE.md` §8.1: el acceso siempre ocurre en el contexto de un grupo o cuenta concreta.
+Requiere pertenencia al grupo, cualquier rol. `group_id` es obligatorio como query param — no existe un listado global de cuentas de todos los grupos a la vez, mismo principio que ya aplica a las consultas de `transactions` en `ARCHITECTURE.md` §8.3: toda consulta ocurre dentro del ámbito de un grupo.
 
 - **Salida**: las cuentas del grupo (activas y archivadas — el cliente filtra por `is_active` si solo quiere ver las activas), envueltas en `{items: [...]}`, sin paginar.
 - **Errores**: `403` si el usuario no pertenece a `group_id`.
+
+### `GET /api/v1/accounts/balance?group_id={group_id}`
+
+Requiere pertenencia al grupo, cualquier rol. Agregado (`ARCHITECTURE.md` §8.3).
+
+- **Salida**: `GroupBalanceRead` — `{net_worth, available, account_count, spendable_account_count, currency}`. `net_worth` es la suma del `balance` de **todas** las cuentas activas del grupo; `available` solo el de las gastables (ver regla de negocio). Los importes van en céntimos, como cualquier otro importe del proyecto.
+- **Errores**: `403` si el usuario no pertenece a `group_id`.
+
+> ⚠️ Esta ruta debe declararse **antes** que `GET /api/v1/accounts/{account_id}` en el router. FastAPI resuelve por orden de declaración: si va después, `balance` se interpreta como un `account_id` y la petición muere con un `422` de UUID inválido, que no se parece en nada al problema real.
 
 ### `GET /api/v1/accounts/{account_id}`
 
@@ -58,6 +67,10 @@ Requiere rol `owner` o `admin` en el grupo de la cuenta. Actualización parcial 
 - **Divisa única por grupo** (resuelve la nota pendiente de `ARCHITECTURE.md` §6): todas las cuentas activas de un mismo `account_group` deben compartir `currency`. La primera cuenta que se crea en un grupo fija su divisa; cualquier cuenta posterior con una `currency` distinta devuelve `409`. Se valida a nivel de aplicación, no de base de datos (la columna no tiene ninguna restricción que lo imponga) — así el día que se decida soportar divisas mixtas por grupo, es un cambio de una sola validación, no una migración de esquema.
 - `balance` nunca se escribe directamente desde la aplicación, ni en la creación ni en la actualización — nace de `opening_balance` (trigger `trg_init_account_balance`) y se mantiene con los triggers que definirá el SPEC de `transactions`. Por eso `opening_balance` tampoco es editable tras la creación: cambiarlo después desincronizaría `balance` de la suma real de sus movimientos, sin dejar rastro de por qué cambió.
 - `currency` no es editable tras la creación: una cuenta con transacciones ya registradas en una divisa no puede cambiar de divisa sin invalidar todo su histórico. Si hace falta corregir una divisa mal elegida al crear la cuenta sin movimientos todavía, se archiva y se crea una nueva — no hay flujo de "corregir divisa" en v1.
+- **Patrimonio y disponible son cifras distintas, y el `type` decide cuál es cuál.** El patrimonio es todo lo que hay; el disponible es lo que financia el gasto del día a día. El dinero de una cuenta de ahorro o de inversión suma a lo primero pero no a lo segundo: calcular sobre el patrimonio un "cuánto puedo gastar al día" daría una cifra absurda. La regla se deriva del `type` y vive en una única constante, `SPENDABLE_ACCOUNT_TYPES` en `app/accounts/models.py`: `cash`, `bank` y `credit_card` son gastables; `savings`, `investment` y `other` no.
+  - `credit_card` entra a propósito aunque chirríe: el `balance` de una tarjeta es deuda, es decir negativo, así que sumarlo **reduce** el disponible. Si debes 200 € en la tarjeta, ese dinero ya no es tuyo para gastar.
+  - Limitación conocida: la regla es global, no por cuenta. Una cuenta `bank` que en realidad sea el colchón de emergencia contará como gastable, y no hay forma de corregirlo caso por caso. El razonamiento y la salida (una columna `is_spendable` explícita) están en [ADR-0004](../decisions/0004-cuentas-gastables-por-tipo.md).
+- **El saldo agregado ignora las cuentas archivadas.** `is_active = false` significa que la cuenta ya no participa en la vida del grupo; incluir su saldo en el patrimonio daría un número que no se corresponde con nada. Su histórico se conserva, pero no suma.
 - Igual que en `account_groups`, un error de autorización nunca se enmascara como recurso inexistente: no pertenecer al grupo de una cuenta da `403`, nunca `404`, tanto si la cuenta existe como si no (`ARCHITECTURE.md` §5.6).
 - El borrado es lógico solo en el sentido de `is_active`, igual que `account_groups`: no hay columna `deleted_at` en `accounts` (a diferencia de `transactions`). Una cuenta archivada conserva su saldo e historial, y puede reactivarse con el mismo `PATCH`.
 
@@ -66,8 +79,9 @@ Requiere rol `owner` o `admin` en el grupo de la cuenta. Actualización parcial 
 - Borrado físico de una cuenta — solo archivado (`is_active = false`).
 - Cambiar la `currency` o el `opening_balance` de una cuenta ya creada.
 - Transferencias entre cuentas como concepto de este dominio — se resolverán como `transactions.type = 'transfer'`, en el SPEC de `transactions`.
-- Múltiples divisas dentro de un mismo grupo.
-- Saldo agregado por grupo (sumar el `balance` de todas las cuentas de un grupo) — mencionado como posible en `ARCHITECTURE.md` §8.1, pero ningún endpoint de este dominio lo calcula todavía.
+- Múltiples divisas dentro de un mismo grupo. `GET /accounts/balance` devuelve una única `currency` porque asume la divisa única del grupo; con divisas mixtas ese endpoint tendría que devolver un desglose, no un número.
+- **Marcar una cuenta concreta como gastable o no** (`is_spendable`): la clasificación se deriva del `type`, sin excepciones por cuenta (ver sección 5).
+- **Saldo agregado histórico** ("cuánto tenía el 1 de marzo"): `balance` es un valor actual, no una serie temporal. Reconstruirlo exigiría recorrer las transacciones hacia atrás desde el saldo de hoy.
 
 ## 7. Criterios de aceptación
 
@@ -79,3 +93,7 @@ Requiere rol `owner` o `admin` en el grupo de la cuenta. Actualización parcial 
 - Un usuario autenticado pero sin pertenencia al grupo de la cuenta recibe `403` al operar sobre ella, tanto si la cuenta existe como si no.
 - Un miembro con rol `member` que intenta crear, editar o archivar una cuenta recibe `403`; consultar cuentas sí le funciona con cualquier rol.
 - Archivar una cuenta (`is_active = false`) no borra su `balance` ni su histórico; reactivarla con otro `PATCH` la deja consultable de nuevo.
+- En un grupo con una cuenta `bank` de 100 € y una `savings` de 1000 €, `GET /accounts/balance` devuelve `net_worth = 110000` y `available = 10000` (céntimos), con `account_count = 2` y `spendable_account_count = 1`.
+- Archivar la cuenta `savings` del caso anterior deja `net_worth = 10000`: el saldo agregado ignora las cuentas archivadas.
+- Un grupo sin ninguna cuenta devuelve `net_worth = 0` y `available = 0`, no `null` ni un error.
+- Una cuenta `credit_card` con `balance = -20000` resta del `available`, no suma.
