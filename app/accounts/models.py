@@ -28,6 +28,15 @@ class AccountTypeEnum(str, enum.Enum):
     OTHER = "other"
 
 
+# accounts.md §5 y ADR-0004. CREDIT_CARD entra aquí porque su balance es deuda
+# (negativo): al sumarlo al disponible lo reduce, que es justo lo que toca.
+SPENDABLE_ACCOUNT_TYPES = (
+    AccountTypeEnum.CASH,
+    AccountTypeEnum.BANK,
+    AccountTypeEnum.CREDIT_CARD,
+)
+
+
 class Account(Base):
     """Cuenta financiera de un grupo. balance es derivado: nace de
     opening_balance vía trigger y a partir de ahí solo lo tocan los

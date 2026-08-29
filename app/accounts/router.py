@@ -10,7 +10,12 @@ from app.accounts.dependencies import (
     RequireAccountMembership,
     RequireAccountOwnerOrAdmin,
 )
-from app.accounts.schemas import AccountRead, CreateAccountRequest, UpdateAccountRequest
+from app.accounts.schemas import (
+    AccountRead,
+    CreateAccountRequest,
+    GroupBalanceRead,
+    UpdateAccountRequest,
+)
 from app.shared.dependencies import CurrentUser
 from app.shared.openapi_responses import (
     BAD_REQUEST,
@@ -62,6 +67,15 @@ def get_accounts(
     result = service.get_accounts(group_id)
     collection_response = CollectionResponse[AccountRead](items=result)
     return collection_response
+
+
+# accounts.md §4: debe ir declarada antes que GET /{account_id}, o FastAPI
+# resuelve "balance" como un account_id y responde un 422 de UUID inválido.
+@router.get("/balance", responses=responses(UNAUTHORIZED, FORBIDDEN))
+def get_group_balance(
+    service: AccountServiceDep, group_id: GroupIdQuery, membership: RequireMembership
+) -> GroupBalanceRead:
+    return service.get_group_balance(group_id)
 
 
 @router.get("/{account_id}", responses=responses(UNAUTHORIZED, FORBIDDEN))

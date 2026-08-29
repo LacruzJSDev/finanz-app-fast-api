@@ -1,11 +1,23 @@
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.accounts.commands import AccountCommand, UpdateAccountCommand
-from app.accounts.models import Account, AccountTypeEnum
+from app.accounts.models import SPENDABLE_ACCOUNT_TYPES, Account, AccountTypeEnum
+
+
+@dataclass
+class GroupBalanceRow:
+    """Fila cruda del agregado de saldo de un grupo. currency es None cuando el
+    grupo no tiene ninguna cuenta activa: no hay divisa que deducir."""
+
+    net_worth: int
+    available: int
+    account_count: int
+    spendable_account_count: int
+    currency: str | None
 
 
 @dataclass
@@ -50,6 +62,31 @@ class AccountRepository:
             .all()
         )
         return list(accounts)
+
+    def get_group_balance(self, group_id: uuid.UUID) -> GroupBalanceRow:
+        is_spendable = Account.type.in_(SPENDABLE_ACCOUNT_TYPES)
+        # ARCHITECTURE.md §8.3: un solo escaneo con FILTER en vez de encadenar
+        # consultas; COALESCE porque SUM de cero filas es NULL.
+        row = self.db.execute(
+            select(
+                func.coalesce(func.sum(Account.balance), 0),
+                func.coalesce(func.sum(Account.balance).filter(is_spendable), 0),
+                func.count(Account.id),
+                func.count(Account.id).filter(is_spendable),
+                # Divisa única por grupo (accounts.md §5): cualquier cuenta
+                # activa sirve para deducirla.
+                func.max(Account.currency),
+            ).where(Account.group_id == group_id, Account.is_active.is_(True))
+        ).one()
+
+        # SUM sobre BIGINT devuelve NUMERIC, que psycopg entrega como Decimal.
+        return GroupBalanceRow(
+            net_worth=int(row[0]),
+            available=int(row[1]),
+            account_count=int(row[2]),
+            spendable_account_count=int(row[3]),
+            currency=row[4],
+        )
 
     def get_account_by_id(self, account_id: uuid.UUID) -> Account | None:
         return self.db.execute(

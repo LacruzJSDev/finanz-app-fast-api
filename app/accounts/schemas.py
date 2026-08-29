@@ -29,6 +29,17 @@ class UpdateAccountRequest(BaseModel):
     is_active: bool | None = Field(default=None)
 
 
+class GroupBalanceRead(BaseModel):
+    """Saldo agregado de un grupo, en céntimos. Un grupo sin cuentas activas
+    devuelve ceros y la divisa por defecto, nunca null (accounts.md §7)."""
+
+    net_worth: int
+    available: int
+    account_count: int
+    spendable_account_count: int
+    currency: str
+
+
 class AccountRead(BaseModel):
     """Representación pública de una cuenta"""
 

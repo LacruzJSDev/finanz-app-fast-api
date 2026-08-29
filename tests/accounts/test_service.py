@@ -5,8 +5,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.accounts.commands import AccountCommand, UpdateAccountCommand
-from app.accounts.models import Account, AccountTypeEnum
-from app.accounts.repository import AccountRepository
+from app.accounts.models import SPENDABLE_ACCOUNT_TYPES, Account, AccountTypeEnum
+from app.accounts.repository import AccountRepository, GroupBalanceRow
 from app.accounts.service import AccountService
 from app.shared.exceptions import BadRequestError, ConflictError, NotFoundError
 
@@ -30,6 +30,18 @@ def make_account(**overrides: object) -> Account:
     }
     defaults.update(overrides)
     return Account(**defaults)  # pyright: ignore[reportArgumentType]
+
+
+def make_group_balance_row(**overrides: object) -> GroupBalanceRow:
+    defaults: dict[str, object] = {
+        "net_worth": 0,
+        "available": 0,
+        "account_count": 0,
+        "spendable_account_count": 0,
+        "currency": "EUR",
+    }
+    defaults.update(overrides)
+    return GroupBalanceRow(**defaults)  # pyright: ignore[reportArgumentType]
 
 
 @pytest.fixture
@@ -146,6 +158,96 @@ class TestGetAccounts:
         result = service.get_accounts(group_id)
 
         assert len(result) == 2
+
+
+class TestSpendableAccountTypes:
+    def test_cash_bank_and_credit_card_are_spendable(self):
+        assert set(SPENDABLE_ACCOUNT_TYPES) == {
+            AccountTypeEnum.CASH,
+            AccountTypeEnum.BANK,
+            AccountTypeEnum.CREDIT_CARD,
+        }
+
+    def test_savings_investment_and_other_are_not_spendable(self):
+        for account_type in (
+            AccountTypeEnum.SAVINGS,
+            AccountTypeEnum.INVESTMENT,
+            AccountTypeEnum.OTHER,
+        ):
+            assert account_type not in SPENDABLE_ACCOUNT_TYPES
+
+
+class TestGetGroupBalance:
+    def test_queries_the_requested_group(
+        self, service: AccountService, account_repo: MagicMock
+    ):
+        group_id = uuid.uuid4()
+        account_repo.get_group_balance.return_value = make_group_balance_row()
+
+        service.get_group_balance(group_id)
+
+        assert account_repo.get_group_balance.call_args.args == (group_id,)
+
+    def test_mixed_types_separate_net_worth_from_available(
+        self, service: AccountService, account_repo: MagicMock
+    ):
+        # accounts.md §7: bank de 100 € y savings de 1000 €.
+        account_repo.get_group_balance.return_value = make_group_balance_row(
+            net_worth=110000,
+            available=10000,
+            account_count=2,
+            spendable_account_count=1,
+        )
+
+        result = service.get_group_balance(uuid.uuid4())
+
+        assert result.net_worth == 110000
+        assert result.available == 10000
+        assert result.account_count == 2
+        assert result.spendable_account_count == 1
+        assert result.currency == "EUR"
+
+    def test_negative_credit_card_subtracts_from_available(
+        self, service: AccountService, account_repo: MagicMock
+    ):
+        # bank de 100 € y credit_card con -200 € de deuda.
+        account_repo.get_group_balance.return_value = make_group_balance_row(
+            net_worth=-10000,
+            available=-10000,
+            account_count=2,
+            spendable_account_count=2,
+        )
+
+        result = service.get_group_balance(uuid.uuid4())
+
+        assert result.available == -10000
+        assert result.spendable_account_count == 2
+
+    def test_group_without_accounts_returns_zeros_and_default_currency(
+        self, service: AccountService, account_repo: MagicMock
+    ):
+        account_repo.get_group_balance.return_value = make_group_balance_row(
+            currency=None
+        )
+
+        result = service.get_group_balance(uuid.uuid4())
+
+        assert result.net_worth == 0
+        assert result.available == 0
+        assert result.account_count == 0
+        assert result.spendable_account_count == 0
+        assert result.currency == "EUR"
+
+    def test_uses_the_currency_of_the_group_accounts(
+        self, service: AccountService, account_repo: MagicMock
+    ):
+        account_repo.get_group_balance.return_value = make_group_balance_row(
+            net_worth=5000, available=5000, currency="USD"
+        )
+
+        result = service.get_group_balance(uuid.uuid4())
+
+        assert result.currency == "USD"
 
 
 class TestGetAccount:
