@@ -14,6 +14,8 @@ Todos los endpoints exigen autenticación (`get_current_user`) y, salvo la creac
 
 - Un usuario autenticado crea un grupo nuevo y pasa a ser su `owner`.
 - Un miembro con rol `owner` o `admin` invita a otro usuario al grupo, generando un código.
+- Un miembro con rol `owner` o `admin` consulta las invitaciones de su grupo para saber a quién se ha invitado y en qué estado está cada invitación.
+- Un miembro con rol `owner` o `admin` revoca una invitación que creó por error o que ya no interesa, antes de que nadie la acepte.
 - Un usuario autenticado consulta una invitación por su código para ver quién le invitó, a qué grupo y con qué rol, antes de decidir si la acepta.
 - Un usuario autenticado acepta una invitación mediante su código y pasa a ser miembro con el rol indicado en la invitación.
 - Un miembro consulta los grupos a los que pertenece y los miembros de un grupo concreto.
@@ -71,11 +73,29 @@ Requiere rol `owner` o `admin`.
 - **Efecto**: crea una fila en `invitations` con un `code` aleatorio y `expires_at` (ver sección 5 para la duración).
 - **Salida**: la invitación, incluido `code` — es responsabilidad del cliente comunicárselo a la persona invitada, fuera del alcance de este dominio (no hay envío de email en v1, ver sección 6).
 
+### `GET /api/v1/account-groups/{group_id}/invitations`
+
+Requiere rol `owner` o `admin`. Es la pantalla de gestión: quién ha sido invitado y en qué estado está cada invitación.
+
+- **Salida**: todas las invitaciones del grupo —`pending`, `accepted` y `expired`— envueltas en `{items: [...]}`, sin paginar, ordenadas por `created_at` descendente. El volumen esperado por grupo es pequeño (`ARCHITECTURE.md` §5.4). Se devuelven todas y no solo las pendientes para que el cliente pueda filtrar sin necesitar un segundo endpoint más adelante.
+- **Efecto**: aplica la misma caducidad perezosa que el `GET` por código (ver sección 5): las invitaciones `pending` cuyo `expires_at` ya pasó, o cuyo `invited_by` ha borrado su cuenta, pasan a `expired` en este mismo momento. Sí, es un `GET` que escribe; la alternativa era tener dos reglas distintas de caducidad y que acabaran divergiendo.
+- **`code` se devuelve en cada fila**: quien puede ver esta lista es quien puede crear invitaciones, así que no hay nada que ocultarle — y le permite recuperar y reenviar un enlace que se perdió, sin tener que crear otra invitación.
+- **Errores**: `403` si el usuario no pertenece al grupo, o pertenece con rol `member`.
+
+### `DELETE /api/v1/account-groups/{group_id}/invitations/{invitation_id}`
+
+Requiere rol `owner` o `admin`. Revoca una invitación que aún no se ha usado.
+
+- **Efecto**: **borra la fila** ([ADR-0006](../decisions/0006-revocar-invitaciones-borrado-fisico.md)). No hay borrado lógico ni estado `revoked`.
+- **Salida**: `204 No Content`.
+- **Errores**: `403` si el usuario no pertenece al grupo, o pertenece con rol `member`. `404` si `invitation_id` no existe o pertenece a otro grupo — mismo criterio que el endpoint de aceptar, no se revela que la invitación es válida en otro sitio; revocar dos veces devuelve `404` la segunda. `409` si la invitación está `accepted` (ver sección 5).
+
 ### `GET /api/v1/account-groups/invitations/{code}`
 
 Requiere autenticación, no pertenencia previa al grupo.
 
-- **Salida**: la invitación — grupo, quién invitó, rol ofrecido y `status`. Permite al cliente mostrar "X te ha invitado a Y" antes de que el usuario decida aceptar, y de paso resolver el `group_id` que necesita para llamar al endpoint de aceptar (ver más abajo), ya que quien recibe el enlace de invitación solo tiene el `code`.
+- **Salida**: la invitación con **el grupo completo embebido** (`group`: nombre, color, icono…), además de quién invitó, el rol ofrecido y el `status`. Permite al cliente mostrar "X te ha invitado a Y" antes de que el usuario decida aceptar, y de paso resolver el `group_id` que necesita para llamar al endpoint de aceptar (ver más abajo), ya que quien recibe el enlace de invitación solo tiene el `code`.
+- **Es el único endpoint que embebe el grupo**, y por eso usa un schema propio en vez del `InvitationRead` que devuelven los demás. La razón es que aquí, y solo aquí, quien consulta **no pertenece al grupo**: no puede pedirlo por separado a `GET /account-groups`, que exige pertenencia. En el listado de gestión, en cambio, el grupo ya se conoce — va en la propia URL —, así que embeberlo en cada fila sería repetir el mismo objeto N veces sin que nadie lo necesite.
 - **Efecto**: si `expires_at` ya pasó, o si el usuario que invitó ha borrado su cuenta desde entonces (`invited_by` es `NULL` — ver sección 5 sobre `ON DELETE SET NULL`), la invitación se marca `expired` en este mismo momento, de forma perezosa (no hay ningún proceso en segundo plano que recorra invitaciones caducadas). `invited_by` no borra la fila (se preserva el histórico), pero deja la invitación tan inutilizable como si hubiera caducado por tiempo — no tiene sentido unirse a un grupo por una invitación de alguien que ya no está; el invitado tiene que pedir un código nuevo a otro miembro.
 - **Errores**: `404` si el código no existe. Una invitación `accepted` o expirada (por tiempo o por invitador borrado) **no** es un error aquí — es una simple consulta, no un cambio de estado, así que se devuelve igual que cualquier otra, con su `status` real en el cuerpo (`invited_by: null` si el invitador ya no existe); es responsabilidad del cliente decidir qué mostrar (por ejemplo, "esta invitación ya expiró") en vez de dejar que lo intente aceptar.
 
@@ -120,14 +140,20 @@ Existe por corrección, no por rendimiento: todos sus bloques tienen que calcula
 - Un grupo siempre tiene al menos un `owner` mientras tenga algún miembro. El único `owner` de un grupo con otros miembros no puede abandonarlo ni ser eliminado, ni puede degradarse su propio rol, sin que antes se promueva a otro miembro a `owner`. Si es además el único miembro del grupo, sí puede abandonarlo — el grupo queda sin miembros, no se borra ni se archiva automáticamente. Esto resuelve la dependencia que `docs/domains/users.md` §6 dejaba abierta sobre la baja de un usuario que sea único `owner` de un grupo con más miembros: ese caso debe bloquearse aquí, en `account_groups`, antes de que `users` pueda implementar `DELETE /me`.
 - Los roles son jerárquicos para las acciones de gestión: `owner` puede todo lo que puede `admin`; `admin` puede invitar y expulsar `member`, pero no a otro `admin` ni a un `owner`. Cualquier miembro, sea cual sea su rol, puede ver los datos del grupo y abandonar voluntariamente (salvo la restricción de único `owner`).
 - Duración de una invitación: 7 días desde su creación. El código no se reutiliza tras aceptarse ni tras expirar; una invitación caducada requiere crear una nueva.
+- **Gestionar invitaciones es gobierno del grupo**: listarlas y revocarlas exige `owner`/`admin`, el mismo corte que ya aplica a crearlas. No tendría sentido que quien no puede invitar sí pudiera ver a quién se ha invitado o cortar la invitación de otro.
+- **Solo se revoca lo que nadie ha usado.** Una invitación `pending` o `expired` se borra sin más; una `accepted` devuelve `409`, porque su fila es el registro de que alguien entró al grupo y borrarla reescribiría un hecho. Para deshacer eso está el endpoint de expulsar miembros, que es lo que corresponde.
+- **Revocar borra la fila, no la marca.** La tabla es un registro histórico —de ahí los `ON DELETE SET NULL` de `invited_by`/`accepted_by`—, pero lo que ese histórico protege son las invitaciones *aceptadas*. Una pendiente que se revoca es una que nadie llegó a usar: no hay hecho que preservar, solo una intención retirada. Consecuencia asumida: **no queda rastro de quién revocó ni cuándo**. El razonamiento completo y las alternativas descartadas están en [ADR-0006](../decisions/0006-revocar-invitaciones-borrado-fisico.md).
+- **La caducidad perezosa es una sola regla, aplicada en dos sitios.** Tanto el `GET` por código como el listado por grupo marcan `expired` lo que ya haya caducado, en el momento de leerlo. No hay proceso en segundo plano. Si el listado no lo hiciera, la pantalla de gestión mostraría como pendientes invitaciones caducadas hace semanas que nadie ha consultado.
 - La divisa única por grupo (`accounts.currency`, no `account_groups.currency`) se valida a nivel de aplicación, no de base de datos — ver `ARCHITECTURE.md` §6. La validación concreta se define en el SPEC de `accounts`, todavía sin redactar; este dominio no la implementa.
 - El borrado es lógico solo en el sentido de `is_active`: no hay una columna `deleted_at` en `account_groups` (a diferencia de `transactions`). Un grupo archivado conserva todos sus datos y puede reactivarse con el mismo `PATCH`.
 
 ## 6. Fuera de alcance (v1)
 
 - Envío de la invitación por email — el `code` se genera y se devuelve al cliente, pero comunicárselo al invitado es responsabilidad del frontend (por ejemplo, compartiendo un enlace).
-- Rechazar explícitamente una invitación (`status = 'expired'` solo se alcanza por el paso del tiempo, no por una acción del invitado).
-- Revocar o listar invitaciones pendientes ya creadas.
+- Rechazar explícitamente una invitación por parte del invitado (`status = 'expired'` se alcanza por el paso del tiempo o al revocarla quien administra el grupo, nunca por una acción de quien la recibe).
+- **Rastro de la revocación**: quién revocó una invitación y cuándo. La fila se borra, así que no queda registrado en ninguna parte (ADR-0006).
+- **Reenviar una invitación** como operación propia: el listado devuelve el `code`, y con él el cliente puede reconstruir el enlace sin crear una invitación nueva.
+- **Revocar en bloque** todas las invitaciones pendientes de un grupo.
 - Roles personalizados más allá de `owner`/`admin`/`member`.
 - Borrado físico de un grupo — solo archivado (`is_active = false`).
 - Transferencia de propiedad como operación dedicada (se resuelve con `PATCH` de rol, ver sección 4).
@@ -139,6 +165,14 @@ Existe por corrección, no por rendimiento: todos sus bloques tienen que calcula
 
 - Crear un grupo crea también, en la misma operación, la fila de `account_group_members` con `role = 'owner'` para quien lo creó.
 - Consultar una invitación con un código inexistente devuelve `404`; con un código válido pero ya `accepted` o expirado, devuelve `200` con el `status` real, no un error.
+- Consultar una invitación por su código devuelve el grupo completo embebido, de modo que un usuario que no pertenece al grupo puede ver su nombre sin tener acceso a `GET /account-groups`.
+- El listado por grupo devuelve las invitaciones en cualquier estado, cada una con su `code`, y **sin** el grupo embebido.
+- Listar un grupo con una invitación `pending` cuyo `expires_at` ya pasó la devuelve como `expired`, y la fila queda marcada así en base de datos.
+- Revocar una invitación `pending` devuelve `204` y la fila desaparece del listado; repetir la llamada devuelve `404`.
+- Revocar una invitación `accepted` devuelve `409` y no borra nada: quien ya entró al grupo se saca expulsándolo, no borrando su invitación.
+- Revocar una invitación `expired` sí funciona: no aporta nada y ensucia la pantalla.
+- Revocar con un `invitation_id` de otro grupo devuelve `404`, sin distinguirlo de uno inexistente.
+- Un miembro con rol `member` recibe `403` al listar o al revocar invitaciones.
 - Consultar una invitación `pending` cuyo `invited_by` ha borrado su cuenta la marca `expired` en ese momento y la devuelve con `invited_by: null`, sin dar ningún error.
 - Aceptar una invitación con un `invitation_id` inexistente, o que existe pero no pertenece al `group_id` de la ruta, devuelve `404`, sin distinguir entre ambos casos.
 - Aceptar una invitación ya aceptada, expirada por tiempo, expirada por invitador borrado, o siendo ya miembro del grupo, devuelve `409`, sin crear una fila de pertenencia.

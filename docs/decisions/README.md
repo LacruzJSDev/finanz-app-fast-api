@@ -37,3 +37,4 @@ Estructura: Estado · Contexto · Decisión · Consecuencias · Alternativas des
 | [0003](0003-ancla-de-cobro-derivada.md) | El ancla de cobro se deriva, sin columna nueva | Aceptada |
 | [0004](0004-cuentas-gastables-por-tipo.md) | Las cuentas gastables se derivan de `accounts.type` | Aceptada |
 | [0005](0005-presupuestos-plantilla-vigente.md) | Presupuestos como plantilla vigente, no como fila por mes | Aceptada |
+| [0006](0006-revocar-invitaciones-borrado-fisico.md) | Revocar una invitación la borra, no la marca | Aceptada |
