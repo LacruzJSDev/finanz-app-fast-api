@@ -40,11 +40,11 @@ class AccountGroupsRepository:
                 select(AccountGroup)
                 .join(AccountGroupMember)
                 .where(AccountGroupMember.user_id == user_id)
-                .options(
-                    selectinload(
-                        AccountGroup.members.and_(AccountGroupMember.user_id != user_id)
-                    )
-                )
+                # members viene completo, incluido quien consulta: es el único
+                # sitio de esta respuesta donde viaja un role, así que
+                # excluirse deja al cliente sin saber qué puede hacer en cada
+                # grupo (account_groups.md §4).
+                .options(selectinload(AccountGroup.members))
             )
             .scalars()
             .all()

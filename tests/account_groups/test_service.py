@@ -255,6 +255,82 @@ class TestCreateGroup:
         assert command.role == AccountGroupMemberRoleEnum.OWNER
 
 
+class TestGetGroups:
+    def test_includes_the_requesting_user_among_the_members(
+        self,
+        service: AccountGroupService,
+        account_group_repo: MagicMock,
+        user_repo: MagicMock,
+    ):
+        # account_groups.md §4: members es el único sitio de esta respuesta
+        # donde viaja un role, así que excluirse dejaría al cliente sin saber
+        # qué puede hacer en el grupo.
+        requester = make_user(name="Yo")
+        other = make_user(name="Otro")
+        group = make_group()
+        group.members = [
+            make_member(group.id, requester.id, AccountGroupMemberRoleEnum.OWNER),
+            make_member(group.id, other.id, AccountGroupMemberRoleEnum.MEMBER),
+        ]
+        account_group_repo.get_groups_by_user_id.return_value = [group]
+        user_repo.get_users_by_ids.side_effect = None
+        user_repo.get_users_by_ids.return_value = [requester, other]
+
+        result = service.get_groups(requester.id)
+
+        member_ids = {member.user_id for member in result[0].members}
+        assert requester.id in member_ids
+        assert member_ids == {requester.id, other.id}
+
+    def test_exposes_the_role_of_the_requesting_user(
+        self,
+        service: AccountGroupService,
+        account_group_repo: MagicMock,
+        user_repo: MagicMock,
+    ):
+        requester = make_user()
+        group = make_group()
+        group.members = [
+            make_member(group.id, requester.id, AccountGroupMemberRoleEnum.ADMIN)
+        ]
+        account_group_repo.get_groups_by_user_id.return_value = [group]
+        user_repo.get_users_by_ids.side_effect = None
+        user_repo.get_users_by_ids.return_value = [requester]
+
+        result = service.get_groups(requester.id)
+
+        own = next(m for m in result[0].members if m.user_id == requester.id)
+        assert own.role == AccountGroupMemberRoleEnum.ADMIN
+
+    def test_returns_a_group_without_dropping_any_member(
+        self,
+        service: AccountGroupService,
+        account_group_repo: MagicMock,
+        user_repo: MagicMock,
+    ):
+        requester = make_user()
+        others = [make_user(), make_user()]
+        group = make_group()
+        group.members = [
+            make_member(group.id, user.id) for user in [requester, *others]
+        ]
+        account_group_repo.get_groups_by_user_id.return_value = [group]
+        user_repo.get_users_by_ids.side_effect = None
+        user_repo.get_users_by_ids.return_value = [requester, *others]
+
+        result = service.get_groups(requester.id)
+
+        # Un recuento derivado de members saldría corto si se filtrara a nadie.
+        assert len(result[0].members) == 3
+
+    def test_returns_empty_when_the_user_has_no_groups(
+        self, service: AccountGroupService, account_group_repo: MagicMock
+    ):
+        account_group_repo.get_groups_by_user_id.return_value = []
+
+        assert service.get_groups(uuid.uuid4()) == []
+
+
 class TestUpdateGroup:
     def test_raises_bad_request_when_no_fields(self, service: AccountGroupService):
         membership = make_member(uuid.uuid4(), uuid.uuid4())

@@ -36,6 +36,7 @@ Prefijo de recurso: `/api/v1/account-groups` (kebab-case en la URL — no hay pr
 ### `GET /api/v1/account-groups`
 
 - **Salida**: los grupos a los que pertenece el usuario autenticado, envueltos en `{items: [...]}` (ver `ARCHITECTURE.md` §5.4) — sin paginar, acotado de forma natural por cuántos grupos puede tener una persona.
+- **`members` viene completo, incluido quien consulta.** No es un detalle de eficiencia: es el único sitio de esta respuesta donde viaja un `role`, así que excluirse a uno mismo deja al cliente sin saber qué puede hacer en cada grupo — si mostrar la gestión de roles, si puede invitar, si puede archivar. Además, cualquier recuento derivado de la lista saldría corto por uno. Si algún día el tamaño de la respuesta llegara a importar, la salida es exponer el rol propio como campo escalar del grupo, nunca recortar `members`.
 
 ### `PATCH /api/v1/account-groups/{group_id}`
 
@@ -164,6 +165,7 @@ Existe por corrección, no por rendimiento: todos sus bloques tienen que calcula
 ## 7. Criterios de aceptación
 
 - Crear un grupo crea también, en la misma operación, la fila de `account_group_members` con `role = 'owner'` para quien lo creó.
+- El listado de grupos incluye a quien consulta dentro de `members`, con su rol, de modo que el cliente puede resolver qué le está permitido en cada grupo sin una segunda petición.
 - Consultar una invitación con un código inexistente devuelve `404`; con un código válido pero ya `accepted` o expirado, devuelve `200` con el `status` real, no un error.
 - Consultar una invitación por su código devuelve el grupo completo embebido, de modo que un usuario que no pertenece al grupo puede ver su nombre sin tener acceso a `GET /account-groups`.
 - El listado por grupo devuelve las invitaciones en cualquier estado, cada una con su `code`, y **sin** el grupo embebido.
