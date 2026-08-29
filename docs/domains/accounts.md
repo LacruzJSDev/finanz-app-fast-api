@@ -96,4 +96,4 @@ Requiere rol `owner` o `admin` en el grupo de la cuenta. Actualización parcial 
 - En un grupo con una cuenta `bank` de 100 € y una `savings` de 1000 €, `GET /accounts/balance` devuelve `net_worth = 110000` y `available = 10000` (céntimos), con `account_count = 2` y `spendable_account_count = 1`.
 - Archivar la cuenta `savings` del caso anterior deja `net_worth = 10000`: el saldo agregado ignora las cuentas archivadas.
 - Un grupo sin ninguna cuenta devuelve `net_worth = 0` y `available = 0`, no `null` ni un error.
-- Una cuenta `credit_card` con `balance = -20000` resta del `available`, no suma.
+- Una cuenta `credit_card` con `balance = -20000` resta tanto del `available` como del `net_worth`: es una cuenta activa más, y su saldo negativo es deuda real del grupo.

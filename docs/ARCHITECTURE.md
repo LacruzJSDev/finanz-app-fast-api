@@ -337,7 +337,7 @@ Los endpoints de consulta viven en un router plano propio del dominio (`/api/v1/
 Reglas transversales:
 
 - Todo filtro es **opcional**; ausente significa "no restringe". El único parámetro obligatorio es el ámbito.
-- Un filtro sobre una **categoría raíz incluye sus subcategorías**. La jerarquía es de exactamente dos niveles (impuesta por `trg_check_category_depth`), así que resolverlo es un `COALESCE(parent_id, id)`, nunca una CTE recursiva.
+- Un filtro sobre una **categoría raíz incluye sus subcategorías**, y uno sobre una subcategoría devuelve solo la suya. La jerarquía es de exactamente dos niveles (impuesta por `trg_check_category_depth`), así que nunca hace falta una CTE recursiva. La condición es `COALESCE(parent_id, id) = :cat OR id = :cat`: el `COALESCE` por sí solo agrupa bien pero **filtra mal**, porque para una subcategoría devuelve el id del padre, no el suyo.
 - La **búsqueda de texto** es `ILIKE '%término%'`, sin índice. A los volúmenes de la sección 9 es instantánea; si dejara de serlo, la salida es `pg_trgm` con índice GIN, no rediseñar el contrato.
 - Los filtros **no cambian las reglas de visibilidad**: una transacción borrada lógicamente sigue sin aparecer, se filtre por lo que se filtre.
 
