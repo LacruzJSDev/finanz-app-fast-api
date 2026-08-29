@@ -9,9 +9,16 @@ from app.account_groups.repository import (
     AccountGroupsRepository,
     InvitationRepository,
 )
-from app.account_groups.service import AccountGroupService
+from app.account_groups.service import AccountGroupService, GroupOverviewService
+from app.accounts.repository import AccountRepository
+from app.accounts.service import AccountService
+from app.categories.repository import CategoryRepository
+from app.payment_plans.repository import PaymentPlanRepository
+from app.payment_plans.service import PaymentPlanService
 from app.shared.dependencies import CurrentUser, DbSession
 from app.shared.exceptions import ForbiddenError
+from app.transactions.repository import TransactionRepository
+from app.transactions.service import TransactionService
 from app.users.dependencies import get_user_repository
 from app.users.models import User
 from app.users.repository import UserRepository
@@ -48,6 +55,26 @@ def get_account_group_service(
 
 AccountGroupServiceDep = Annotated[
     AccountGroupService, Depends(get_account_group_service)
+]
+
+
+def get_group_overview_service(db: DbSession) -> GroupOverviewService:
+    """Los tres services se arman aquí a partir de sus repositorios en vez de
+    reutilizar sus *ServiceDep: accounts/dependencies.py importa
+    check_group_role de este módulo, así que importar sus dependencias desde
+    aquí cerraría un ciclo de imports.
+    """
+    account_repo = AccountRepository(db)
+    category_repo = CategoryRepository(db)
+    return GroupOverviewService(
+        AccountService(account_repo),
+        PaymentPlanService(PaymentPlanRepository(db), account_repo, category_repo),
+        TransactionService(TransactionRepository(db), account_repo, category_repo),
+    )
+
+
+GroupOverviewServiceDep = Annotated[
+    GroupOverviewService, Depends(get_group_overview_service)
 ]
 
 

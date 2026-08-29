@@ -1,6 +1,7 @@
 import secrets
 import uuid
 from dataclasses import dataclass
+from datetime import date as date_
 from datetime import datetime, timedelta, timezone
 
 from app.account_groups.commands import (
@@ -23,16 +24,26 @@ from app.account_groups.repository import (
 )
 from app.account_groups.schemas import (
     GroupMemberRead,
+    GroupOverviewRead,
     GroupRead,
     InvitationRead,
     InvitedByRead,
+    PaydayRead,
+    PendingFixedExpenseRead,
+    ProjectionPointRead,
 )
+from app.accounts.service import AccountService
+from app.payment_plans.schemas import PaymentPlanRead
+from app.payment_plans.service import PaymentPlanService
 from app.shared.exceptions import (
     BadRequestError,
     ConflictError,
     ForbiddenError,
     NotFoundError,
 )
+from app.transactions.commands import DailySpendCommand
+from app.transactions.models import TransactionTypeEnum
+from app.transactions.service import TransactionService
 from app.users.models import User
 from app.users.repository import UserRepository
 
@@ -271,3 +282,111 @@ class AccountGroupService:
             account_group_member_command
         )
         return invitation_read
+
+
+def pending_fixed_expenses(
+    upcoming: list[PaymentPlanRead], payday_plan_id: uuid.UUID
+) -> list[PendingFixedExpenseRead]:
+    return [
+        PendingFixedExpenseRead(
+            payment_plan_id=plan.id,
+            description=plan.description,
+            amount=plan.amount,
+            due_date=plan.next_due_date,
+        )
+        for plan in upcoming
+        if plan.id != payday_plan_id and plan.type == TransactionTypeEnum.EXPENSE
+    ]
+
+
+def daily_safe_spend(real_balance: int, days_remaining: int) -> int:
+    return real_balance // max(days_remaining, 1)
+
+
+def build_projection(
+    available: int,
+    expenses: list[PendingFixedExpenseRead],
+    today: date_,
+    payday: date_,
+) -> list[ProjectionPointRead]:
+    steps: dict[date_, int] = {}
+    for expense in expenses:
+        due_date = max(expense.due_date, today)
+        steps[due_date] = steps.get(due_date, 0) + expense.amount
+
+    points: list[ProjectionPointRead] = []
+    balance = available
+    day = today
+    # Un ancla atrasada (el cron aún no ha corrido) dejaría la curva vacía, y
+    # con ella se perdería la igualdad con real_balance del último punto.
+    last_day = max(payday, today)
+    while day <= last_day:
+        balance -= steps.get(day, 0)
+        points.append(ProjectionPointRead(date=day, balance=balance))
+        day += timedelta(days=1)
+    return points
+
+
+@dataclass
+class GroupOverviewService:
+    """Composición del resumen de grupo (account_groups.md §4)."""
+
+    account_service: AccountService
+    payment_plan_service: PaymentPlanService
+    transaction_service: TransactionService
+
+    def get_group_overview(self, group_id: uuid.UUID) -> GroupOverviewRead:
+        # Un único today para todos los bloques: es la razón de ser del
+        # endpoint (account_groups.md §4).
+        today = date_.today()
+
+        balance = self.account_service.get_group_balance(group_id)
+        daily_spend = self.transaction_service.get_daily_spend(
+            DailySpendCommand(group_id=group_id, date=today)
+        )
+        payday_plan = self.payment_plan_service.get_payday_plan(group_id)
+
+        if payday_plan is None:
+            return GroupOverviewRead(
+                net_worth=balance.net_worth,
+                available=balance.available,
+                account_count=balance.account_count,
+                spent_today=daily_spend.spent,
+                transaction_count_today=daily_spend.transaction_count,
+                payday=None,
+                pending_fixed_expenses=[],
+                pending_fixed_expenses_total=0,
+                real_balance=balance.available,
+                days_remaining=None,
+                daily_safe_spend=None,
+                projection=None,
+            )
+
+        payday_date = payday_plan.next_due_date
+        # account_groups.md §5: el cron puede no haber corrido aún, o haber
+        # fallado un día, y dejar next_due_date en el pasado. El horizonte no
+        # se cierra nunca antes de hoy — si no, un gasto que vence hoy quedaría
+        # fuera de real_balance y days_remaining saldría negativo.
+        horizon = max(payday_date, today)
+        upcoming = self.payment_plan_service.get_upcoming_payment_plans(
+            group_id, horizon
+        )
+        expenses = pending_fixed_expenses(upcoming, payday_plan.id)
+        expenses_total = sum(expense.amount for expense in expenses)
+        real_balance = balance.available - expenses_total
+        days_remaining = (horizon - today).days
+
+        return GroupOverviewRead(
+            net_worth=balance.net_worth,
+            available=balance.available,
+            account_count=balance.account_count,
+            spent_today=daily_spend.spent,
+            transaction_count_today=daily_spend.transaction_count,
+            payday=PaydayRead(date=payday_date, amount=payday_plan.amount),
+            pending_fixed_expenses=expenses,
+            pending_fixed_expenses_total=expenses_total,
+            real_balance=real_balance,
+            days_remaining=days_remaining,
+            daily_safe_spend=daily_safe_spend(real_balance, days_remaining),
+            projection=build_projection(balance.available, expenses, today, horizon),
+        )

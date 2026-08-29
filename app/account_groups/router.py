@@ -5,6 +5,7 @@ from fastapi import APIRouter, status
 from app.account_groups.commands import AccountGroupCommand, UpdateAccountGroupCommand
 from app.account_groups.dependencies import (
     AccountGroupServiceDep,
+    GroupOverviewServiceDep,
     RequireMembership,
     RequireOwner,
     RequireOwnerOrAdmin,
@@ -14,6 +15,7 @@ from app.account_groups.schemas import (
     CreateGroupRequest,
     CreateInvitationRequest,
     GroupMemberRead,
+    GroupOverviewRead,
     GroupRead,
     InvitationRead,
     UpdateGroupRequest,
@@ -158,4 +160,15 @@ def accept_invitation(
     user: CurrentUser,
 ) -> InvitationRead:
     result = service.accept_invitation(group_id, user.id, invitation_id)
+    return result
+
+
+@router.get("/{group_id}/overview", responses=responses(UNAUTHORIZED, FORBIDDEN))
+def get_group_overview(
+    service: GroupOverviewServiceDep,
+    group_id: uuid.UUID,
+    membership: RequireMembership,
+) -> GroupOverviewRead:
+    """Resumen del grupo: saldo, gasto de hoy y previsión hasta el cobro"""
+    result = service.get_group_overview(group_id)
     return result

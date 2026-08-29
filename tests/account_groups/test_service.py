@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 import pytest
@@ -20,13 +20,28 @@ from app.account_groups.repository import (
     AccountGroupsRepository,
     InvitationRepository,
 )
-from app.account_groups.service import AccountGroupService
+from app.account_groups.schemas import PendingFixedExpenseRead
+from app.account_groups.service import (
+    AccountGroupService,
+    GroupOverviewService,
+    build_projection,
+    daily_safe_spend,
+    pending_fixed_expenses,
+)
+from app.accounts.schemas import GroupBalanceRead
+from app.accounts.service import AccountService
+from app.payment_plans.models import FrequencyUnitEnum
+from app.payment_plans.schemas import PaymentPlanRead
+from app.payment_plans.service import PaymentPlanService
 from app.shared.exceptions import (
     BadRequestError,
     ConflictError,
     ForbiddenError,
     NotFoundError,
 )
+from app.transactions.models import TransactionTypeEnum
+from app.transactions.schemas import DailySpendRead
+from app.transactions.service import TransactionService
 from app.users.models import User
 from app.users.repository import UserRepository
 
@@ -92,6 +107,63 @@ def make_invitation(**overrides: object) -> Invitation:
     return Invitation(**defaults)  # pyright: ignore[reportArgumentType]
 
 
+def make_payment_plan(**overrides: object) -> PaymentPlanRead:
+    defaults: dict[str, object] = {
+        "id": uuid.uuid4(),
+        "account_id": uuid.uuid4(),
+        "to_account_id": None,
+        "category_id": None,
+        "type": TransactionTypeEnum.EXPENSE,
+        "amount": 10_000,
+        "description": "Alquiler",
+        "next_due_date": date(2026, 3, 1),
+        "end_date": None,
+        "is_recurring": True,
+        "is_active": True,
+        "frequency_interval": 1,
+        "frequency_unit": FrequencyUnitEnum.MONTH,
+        "created_by": None,
+        "updated_by": None,
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+    }
+    defaults.update(overrides)
+    return PaymentPlanRead(**defaults)  # pyright: ignore[reportArgumentType]
+
+
+def make_pending_expense(**overrides: object) -> PendingFixedExpenseRead:
+    defaults: dict[str, object] = {
+        "payment_plan_id": uuid.uuid4(),
+        "description": "Alquiler",
+        "amount": 10_000,
+        "due_date": date(2026, 3, 1),
+    }
+    defaults.update(overrides)
+    return PendingFixedExpenseRead(**defaults)  # pyright: ignore[reportArgumentType]
+
+
+def make_group_balance(**overrides: object) -> GroupBalanceRead:
+    defaults: dict[str, object] = {
+        "net_worth": 500_000,
+        "available": 100_000,
+        "account_count": 3,
+        "spendable_account_count": 2,
+        "currency": "EUR",
+    }
+    defaults.update(overrides)
+    return GroupBalanceRead(**defaults)  # pyright: ignore[reportArgumentType]
+
+
+def make_daily_spend(**overrides: object) -> DailySpendRead:
+    defaults: dict[str, object] = {
+        "date": date(2026, 3, 1),
+        "spent": 2_500,
+        "transaction_count": 2,
+    }
+    defaults.update(overrides)
+    return DailySpendRead(**defaults)  # pyright: ignore[reportArgumentType]
+
+
 @pytest.fixture
 def account_group_repo() -> MagicMock:
     return MagicMock(spec=AccountGroupsRepository)
@@ -131,6 +203,32 @@ def service(
 ) -> AccountGroupService:
     return AccountGroupService(
         account_group_repo, member_repo, user_repo, invitation_repo
+    )
+
+
+@pytest.fixture
+def account_service() -> MagicMock:
+    return MagicMock(spec=AccountService)
+
+
+@pytest.fixture
+def payment_plan_service() -> MagicMock:
+    return MagicMock(spec=PaymentPlanService)
+
+
+@pytest.fixture
+def transaction_service() -> MagicMock:
+    return MagicMock(spec=TransactionService)
+
+
+@pytest.fixture
+def overview_service(
+    account_service: MagicMock,
+    payment_plan_service: MagicMock,
+    transaction_service: MagicMock,
+) -> GroupOverviewService:
+    return GroupOverviewService(
+        account_service, payment_plan_service, transaction_service
     )
 
 
@@ -568,3 +666,248 @@ class TestAcceptInvitation:
         assert command.group_id == group_id
         assert command.user_id == user_id
         assert command.role == AccountGroupMemberRoleEnum.ADMIN
+
+
+class TestBuildProjection:
+    def test_flat_curve_without_pending_expenses(self):
+        today = date(2026, 3, 10)
+
+        points = build_projection(100_000, [], today, today + timedelta(days=3))
+
+        assert [point.date for point in points] == [
+            today + timedelta(days=offset) for offset in range(4)
+        ]
+        assert [point.balance for point in points] == [100_000] * 4
+
+    def test_step_lands_on_the_due_date(self):
+        today = date(2026, 3, 10)
+        expense = make_pending_expense(
+            amount=10_000, due_date=today + timedelta(days=2)
+        )
+
+        points = build_projection(
+            100_000, [expense], today, today + timedelta(days=3)
+        )
+
+        assert [point.balance for point in points] == [
+            100_000,
+            100_000,
+            90_000,
+            90_000,
+        ]
+
+    def test_overdue_expense_is_anchored_to_today(self):
+        today = date(2026, 3, 10)
+        expense = make_pending_expense(
+            amount=10_000, due_date=today - timedelta(days=5)
+        )
+
+        points = build_projection(
+            100_000, [expense], today, today + timedelta(days=2)
+        )
+
+        assert [point.balance for point in points] == [90_000, 90_000, 90_000]
+
+    def test_two_expenses_on_the_same_day_share_one_step(self):
+        today = date(2026, 3, 10)
+        due_date = today + timedelta(days=1)
+        expenses = [
+            make_pending_expense(amount=10_000, due_date=due_date),
+            make_pending_expense(amount=5_000, due_date=due_date),
+        ]
+
+        points = build_projection(
+            100_000, expenses, today, today + timedelta(days=2)
+        )
+
+        assert [point.date for point in points] == [
+            today,
+            due_date,
+            today + timedelta(days=2),
+        ]
+        assert [point.balance for point in points] == [100_000, 85_000, 85_000]
+
+    def test_payday_today_returns_a_single_point(self):
+        today = date(2026, 3, 10)
+        expense = make_pending_expense(amount=10_000, due_date=today)
+
+        points = build_projection(100_000, [expense], today, today)
+
+        assert len(points) == 1
+        assert points[0].date == today
+        assert points[0].balance == 90_000
+
+    def test_last_point_equals_real_balance(self):
+        today = date(2026, 3, 10)
+        payday = today + timedelta(days=6)
+        expenses = [
+            make_pending_expense(amount=10_000, due_date=today - timedelta(days=1)),
+            make_pending_expense(amount=5_000, due_date=today + timedelta(days=2)),
+            make_pending_expense(amount=7_500, due_date=payday),
+        ]
+        available = 100_000
+        real_balance = available - sum(expense.amount for expense in expenses)
+
+        points = build_projection(available, expenses, today, payday)
+
+        assert points[-1].balance == real_balance
+
+
+class TestPendingFixedExpenses:
+    def test_excludes_the_payday_anchor(self):
+        payday_plan = make_payment_plan(type=TransactionTypeEnum.INCOME)
+
+        result = pending_fixed_expenses([payday_plan], payday_plan.id)
+
+        assert result == []
+
+    def test_excludes_a_non_anchor_income(self):
+        income = make_payment_plan(type=TransactionTypeEnum.INCOME)
+
+        result = pending_fixed_expenses([income], uuid.uuid4())
+
+        assert result == []
+
+    def test_excludes_a_transfer(self):
+        # payment_plans.md §6: limitación conocida, una transferencia
+        # programada reduce el disponible pero v1 no la cuenta.
+        transfer = make_payment_plan(
+            type=TransactionTypeEnum.TRANSFER, to_account_id=uuid.uuid4()
+        )
+
+        result = pending_fixed_expenses([transfer], uuid.uuid4())
+
+        assert result == []
+
+    def test_includes_an_expense(self):
+        expense = make_payment_plan(
+            type=TransactionTypeEnum.EXPENSE,
+            amount=42_000,
+            description="Luz",
+            next_due_date=date(2026, 3, 4),
+        )
+
+        result = pending_fixed_expenses([expense], uuid.uuid4())
+
+        assert len(result) == 1
+        assert result[0].payment_plan_id == expense.id
+        assert result[0].amount == 42_000
+        assert result[0].description == "Luz"
+        assert result[0].due_date == date(2026, 3, 4)
+
+
+class TestDailySafeSpend:
+    def test_does_not_divide_by_zero_on_payday(self):
+        assert daily_safe_spend(90_000, 0) == 90_000
+
+    def test_rounds_down(self):
+        assert daily_safe_spend(1_000, 3) == 333
+
+    def test_negative_real_balance_does_not_raise(self):
+        assert daily_safe_spend(-1_000, 3) == -334
+
+
+class TestGroupOverview:
+    def test_returns_nulls_without_payday_anchor(
+        self,
+        overview_service: GroupOverviewService,
+        account_service: MagicMock,
+        payment_plan_service: MagicMock,
+        transaction_service: MagicMock,
+    ):
+        account_service.get_group_balance.return_value = make_group_balance(
+            net_worth=500_000, available=100_000
+        )
+        transaction_service.get_daily_spend.return_value = make_daily_spend(
+            spent=2_500, transaction_count=2
+        )
+        payment_plan_service.get_payday_plan.return_value = None
+
+        result = overview_service.get_group_overview(uuid.uuid4())
+
+        assert result.payday is None
+        assert result.days_remaining is None
+        assert result.daily_safe_spend is None
+        assert result.projection is None
+        assert result.net_worth == 500_000
+        assert result.available == 100_000
+        assert result.spent_today == 2_500
+        assert result.transaction_count_today == 2
+        assert result.real_balance == 100_000
+        payment_plan_service.get_upcoming_payment_plans.assert_not_called()
+
+    def test_composes_forecast_around_the_payday_anchor(
+        self,
+        overview_service: GroupOverviewService,
+        account_service: MagicMock,
+        payment_plan_service: MagicMock,
+        transaction_service: MagicMock,
+    ):
+        today = date.today()
+        payday = today + timedelta(days=5)
+        payday_plan = make_payment_plan(
+            type=TransactionTypeEnum.INCOME, amount=200_000, next_due_date=payday
+        )
+        rent = make_payment_plan(
+            amount=60_000, next_due_date=today + timedelta(days=2)
+        )
+        account_service.get_group_balance.return_value = make_group_balance(
+            available=100_000
+        )
+        transaction_service.get_daily_spend.return_value = make_daily_spend()
+        payment_plan_service.get_payday_plan.return_value = payday_plan
+        payment_plan_service.get_upcoming_payment_plans.return_value = [
+            payday_plan,
+            rent,
+        ]
+
+        result = overview_service.get_group_overview(uuid.uuid4())
+
+        assert result.payday is not None
+        assert result.payday.date == payday
+        assert result.payday.amount == 200_000
+        pending_ids = [
+            expense.payment_plan_id for expense in result.pending_fixed_expenses
+        ]
+        assert pending_ids == [rent.id]
+        assert result.pending_fixed_expenses_total == 60_000
+        assert result.real_balance == 40_000
+        assert result.days_remaining == 5
+        assert result.daily_safe_spend == 8_000
+        assert result.projection is not None
+        assert result.projection[-1].date == payday
+        assert result.projection[-1].balance == result.real_balance
+
+    def test_overdue_anchor_never_yields_negative_days_remaining(
+        self,
+        overview_service: GroupOverviewService,
+        account_service: MagicMock,
+        payment_plan_service: MagicMock,
+        transaction_service: MagicMock,
+    ):
+        # account_groups.md §5: el cron pudo fallar un día y dejar el ancla en
+        # el pasado. El horizonte no se cierra antes de hoy.
+        today = date.today()
+        payday_plan = make_payment_plan(
+            type=TransactionTypeEnum.INCOME,
+            amount=200_000,
+            next_due_date=today - timedelta(days=1),
+        )
+        account_service.get_group_balance.return_value = make_group_balance(
+            available=100_000
+        )
+        transaction_service.get_daily_spend.return_value = make_daily_spend()
+        payment_plan_service.get_payday_plan.return_value = payday_plan
+        payment_plan_service.get_upcoming_payment_plans.return_value = [payday_plan]
+
+        result = overview_service.get_group_overview(uuid.uuid4())
+
+        assert result.days_remaining == 0
+        # La ventana se pide hasta hoy, no hasta el vencimiento atrasado: si no,
+        # un gasto que vence hoy quedaría fuera de real_balance.
+        assert payment_plan_service.get_upcoming_payment_plans.call_args.args[1] == (
+            today
+        )
+        assert result.projection is not None
+        assert len(result.projection) == 1
+        assert result.projection[-1].balance == result.real_balance
