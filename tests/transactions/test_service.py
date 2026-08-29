@@ -586,9 +586,7 @@ class TestTransactionFilterQuery:
 
     def test_rejects_date_from_after_date_to(self):
         with pytest.raises(ValidationError):
-            TransactionFilterQuery(
-                date_from=date(2026, 2, 1), date_to=date(2026, 1, 1)
-            )
+            TransactionFilterQuery(date_from=date(2026, 2, 1), date_to=date(2026, 1, 1))
 
     def test_accepts_same_day_range(self):
         filters = TransactionFilterQuery(

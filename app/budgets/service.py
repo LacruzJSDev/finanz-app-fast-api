@@ -30,9 +30,7 @@ class BudgetService:
     budget_repo: BudgetRepository
     category_repo: CategoryRepository
 
-    def set_budget(
-        self, user_id: uuid.UUID, command: SetBudgetCommand
-    ) -> BudgetRead:
+    def set_budget(self, user_id: uuid.UUID, command: SetBudgetCommand) -> BudgetRead:
         """budgets.md §4: las cuatro ramas de la tabla de efectos. Cerrar la
         fila vigente antes de insertar la nueva deja a excl_budget_overlap
         como red de seguridad ante una carrera, no como camino habitual.
@@ -55,9 +53,7 @@ class BudgetService:
             budget = self.budget_repo.create_budget(user_id, period)
         elif current.valid_from == valid_from:
             # Sin fila nueva: abrirla dejaría un periodo de longitud cero.
-            budget = self.budget_repo.update_amount(
-                current.id, command.amount, user_id
-            )
+            budget = self.budget_repo.update_amount(current.id, command.amount, user_id)
         elif valid_from > current.valid_from:
             # El valid_to de la vieja es el valid_from de la nueva: el
             # intervalo es semiabierto, así no hay solape ni hueco.

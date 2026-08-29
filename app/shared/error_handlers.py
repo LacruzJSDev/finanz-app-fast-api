@@ -88,16 +88,12 @@ async def integrity_error_handler(_: Request, exc: Exception) -> JSONResponse:
     """
     assert isinstance(exc, IntegrityError)
     # psycopg2 expone el SQLSTATE como pgcode; psycopg3 lo llama sqlstate.
-    sqlstate = getattr(exc.orig, "pgcode", None) or getattr(
-        exc.orig, "sqlstate", None
-    )
+    sqlstate = getattr(exc.orig, "pgcode", None) or getattr(exc.orig, "sqlstate", None)
     if sqlstate != EXCLUSION_VIOLATION:
         raise exc
     return _error_response(
         409,
-        ErrorBody(
-            code="conflict", message="El periodo solapa con otro ya existente"
-        ),
+        ErrorBody(code="conflict", message="El periodo solapa con otro ya existente"),
     )
 
 

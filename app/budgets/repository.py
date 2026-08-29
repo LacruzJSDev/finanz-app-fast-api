@@ -30,9 +30,7 @@ class BudgetRepository:
 
     db: Session
 
-    def create_budget(
-        self, user_id: uuid.UUID, period: BudgetPeriodCommand
-    ) -> Budget:
+    def create_budget(self, user_id: uuid.UUID, period: BudgetPeriodCommand) -> Budget:
         budget = Budget(
             category_id=period.category_id,
             amount=period.amount,
