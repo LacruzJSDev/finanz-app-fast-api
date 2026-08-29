@@ -243,6 +243,80 @@ class TestGetPaymentPlans:
         assert len(result) == 2
 
 
+class TestGetUpcomingPaymentPlans:
+    def test_returns_plans_from_every_account_of_the_group(
+        self, service: PaymentPlanService, payment_plan_repo: MagicMock
+    ):
+        payment_plan_repo.get_upcoming_by_group.return_value = [
+            make_plan(account_id=uuid.uuid4(), next_due_date=date(2026, 3, 1)),
+            make_plan(account_id=uuid.uuid4(), next_due_date=date(2026, 3, 5)),
+        ]
+
+        result = service.get_upcoming_payment_plans(uuid.uuid4(), date(2026, 3, 31))
+
+        assert len(result) == 2
+
+    def test_passes_group_and_until_to_the_repository(
+        self, service: PaymentPlanService, payment_plan_repo: MagicMock
+    ):
+        group_id = uuid.uuid4()
+        until = date(2026, 3, 31)
+        payment_plan_repo.get_upcoming_by_group.return_value = []
+
+        service.get_upcoming_payment_plans(group_id, until)
+
+        payment_plan_repo.get_upcoming_by_group.assert_called_once_with(group_id, until)
+
+    def test_returns_empty_list_when_nothing_is_due(
+        self, service: PaymentPlanService, payment_plan_repo: MagicMock
+    ):
+        payment_plan_repo.get_upcoming_by_group.return_value = []
+
+        result = service.get_upcoming_payment_plans(uuid.uuid4(), date(2026, 3, 31))
+
+        assert result == []
+
+
+class TestGetPaydayPlan:
+    def test_returns_none_when_group_has_no_recurring_income(
+        self, service: PaymentPlanService, payment_plan_repo: MagicMock
+    ):
+        payment_plan_repo.get_payday_plan.return_value = None
+
+        result = service.get_payday_plan(uuid.uuid4())
+
+        assert result is None
+
+    def test_returns_the_anchor_plan(
+        self, service: PaymentPlanService, payment_plan_repo: MagicMock
+    ):
+        plan = make_plan(
+            type=TransactionTypeEnum.INCOME,
+            amount=180000,
+            next_due_date=date(2026, 3, 5),
+            is_recurring=True,
+            frequency_interval=1,
+            frequency_unit=FrequencyUnitEnum.MONTH,
+        )
+        payment_plan_repo.get_payday_plan.return_value = plan
+
+        result = service.get_payday_plan(uuid.uuid4())
+
+        assert result is not None
+        assert result.id == plan.id
+        assert result.next_due_date == date(2026, 3, 5)
+
+    def test_passes_group_to_the_repository(
+        self, service: PaymentPlanService, payment_plan_repo: MagicMock
+    ):
+        group_id = uuid.uuid4()
+        payment_plan_repo.get_payday_plan.return_value = None
+
+        service.get_payday_plan(group_id)
+
+        payment_plan_repo.get_payday_plan.assert_called_once_with(group_id)
+
+
 class TestGetPaymentPlan:
     def test_returns_plan_when_it_belongs_to_account(
         self, service: PaymentPlanService, payment_plan_repo: MagicMock

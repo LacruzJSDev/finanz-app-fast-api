@@ -1,5 +1,6 @@
 import uuid
 from dataclasses import dataclass
+from datetime import date as date_
 
 from app.accounts.repository import AccountRepository
 from app.categories.repository import CategoryRepository
@@ -55,6 +56,20 @@ class PaymentPlanService:
             account_id
         )
         return [PaymentPlanRead.model_validate(p) for p in payment_plans]
+
+    def get_upcoming_payment_plans(
+        self, group_id: uuid.UUID, until: date_
+    ) -> list[PaymentPlanRead]:
+        payment_plans = self.payment_plan_repo.get_upcoming_by_group(group_id, until)
+        return [PaymentPlanRead.model_validate(p) for p in payment_plans]
+
+    def get_payday_plan(self, group_id: uuid.UUID) -> PaymentPlanRead | None:
+        # payment_plans.md §5: un grupo sin ingreso recurrente activo no es un
+        # error, el ancla simplemente no existe.
+        payment_plan = self.payment_plan_repo.get_payday_plan(group_id)
+        if payment_plan is None:
+            return None
+        return PaymentPlanRead.model_validate(payment_plan)
 
     def get_payment_plan(
         self, account_id: uuid.UUID, payment_plan_id: uuid.UUID

@@ -1,7 +1,10 @@
 import uuid
+from datetime import date as date_
+from typing import Annotated
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Query, status
 
+from app.account_groups.dependencies import RequireMembership
 from app.accounts.dependencies import (
     RequireAccountMembership,
     RequireAccountOwnerOrAdmin,
@@ -30,6 +33,15 @@ from app.shared.schemas import CollectionResponse
 router = APIRouter(
     prefix="/accounts/{account_id}/payment-plans", tags=["payment-plans"]
 )
+
+# payment_plans.md §4: los endpoints de grupo cuelgan de otro prefijo, y un
+# APIRouter solo admite uno, así que van en un router aparte del mismo fichero.
+group_router = APIRouter(prefix="/payment-plans", tags=["payment-plans"])
+
+GroupIdQuery = Annotated[
+    uuid.UUID, Query(description="Grupo al que pertenecen los planes")
+]
+UntilQuery = Annotated[date_, Query(description="Fecha límite, inclusiva")]
 
 
 @router.post(
@@ -114,3 +126,14 @@ def update_payment_plan(
         is_active=payload.is_active if "is_active" in fields_set else None,
     )
     return service.update_payment_plan(account_id, payment_plan_id, command)
+
+
+@group_router.get("/upcoming", responses=responses(UNAUTHORIZED, FORBIDDEN))
+def get_upcoming_payment_plans(
+    service: PaymentPlanServiceDep,
+    group_id: GroupIdQuery,
+    until: UntilQuery,
+    membership: RequireMembership,
+) -> CollectionResponse[PaymentPlanRead]:
+    result = service.get_upcoming_payment_plans(group_id, until)
+    return CollectionResponse[PaymentPlanRead](items=result)

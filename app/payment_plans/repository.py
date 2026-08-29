@@ -5,6 +5,7 @@ from datetime import date as date_
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from app.accounts.models import Account
 from app.payment_plans.commands import (
     CreatePaymentPlanCommand,
     UpdatePaymentPlanCommand,
@@ -52,6 +53,48 @@ class PaymentPlanRepository:
             .all()
         )
         return list(payment_plans)
+
+    def get_upcoming_by_group(
+        self, group_id: uuid.UUID, until: date_
+    ) -> list[PaymentPlan]:
+        # payment_plans.md §4: sin cota inferior a propósito — un vencimiento
+        # ya pasado que el cron todavía no ha materializado sigue pendiente.
+        payment_plans = (
+            self.db.execute(
+                select(PaymentPlan)
+                .join(Account, Account.id == PaymentPlan.account_id)
+                .where(
+                    Account.group_id == group_id,
+                    PaymentPlan.is_active.is_(True),
+                    PaymentPlan.next_due_date <= until,
+                )
+                .order_by(PaymentPlan.next_due_date)
+            )
+            .scalars()
+            .all()
+        )
+        return list(payment_plans)
+
+    def get_payday_plan(self, group_id: uuid.UUID) -> PaymentPlan | None:
+        # payment_plans.md §5: el ancla de cobro se deriva por convención, sin
+        # columna que la marque (ADR-0003). El tercer criterio de orden solo
+        # da un desempate estable si fecha e importe coinciden.
+        return self.db.execute(
+            select(PaymentPlan)
+            .join(Account, Account.id == PaymentPlan.account_id)
+            .where(
+                Account.group_id == group_id,
+                PaymentPlan.is_active.is_(True),
+                PaymentPlan.type == TransactionTypeEnum.INCOME,
+                PaymentPlan.is_recurring.is_(True),
+            )
+            .order_by(
+                PaymentPlan.next_due_date,
+                PaymentPlan.amount.desc(),
+                PaymentPlan.id,
+            )
+            .limit(1)
+        ).scalar_one_or_none()
 
     def get_payment_plan_by_id(self, payment_plan_id: uuid.UUID) -> PaymentPlan | None:
         return self.db.execute(
