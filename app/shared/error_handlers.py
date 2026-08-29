@@ -3,6 +3,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.requests import Request
 from starlette.types import ExceptionHandler
@@ -11,6 +12,11 @@ from app.shared.exceptions import AppError
 from app.shared.schemas import ErrorBody, ErrorDetail, ErrorResponse
 
 logger = logging.getLogger(__name__)
+
+# SQLSTATE de violación de una restricción EXCLUDE. Lo lanza
+# excl_budget_overlap cuando dos periodos de la misma categoría se pisan
+# (budgets.md §5); sin traducir saldría como 500.
+EXCLUSION_VIOLATION = "23P01"
 
 # Códigos para los errores que no genera la aplicación, sino el framework:
 # rutas inexistentes, métodos no permitidos, cuerpos malformados.
@@ -73,6 +79,28 @@ async def http_exception_handler(_: Request, exc: Exception) -> JSONResponse:
     )
 
 
+async def integrity_error_handler(_: Request, exc: Exception) -> JSONResponse:
+    """Violación de una restricción de integridad de la base de datos.
+
+    Solo traduce la de EXCLUDE. Cualquier otra se vuelve a lanzar para que
+    siga exactamente el camino de antes: unhandled_exception_handler, que la
+    registra en el log y responde 500.
+    """
+    assert isinstance(exc, IntegrityError)
+    # psycopg2 expone el SQLSTATE como pgcode; psycopg3 lo llama sqlstate.
+    sqlstate = getattr(exc.orig, "pgcode", None) or getattr(
+        exc.orig, "sqlstate", None
+    )
+    if sqlstate != EXCLUSION_VIOLATION:
+        raise exc
+    return _error_response(
+        409,
+        ErrorBody(
+            code="conflict", message="El periodo solapa con otro ya existente"
+        ),
+    )
+
+
 async def unhandled_exception_handler(_: Request, exc: Exception) -> JSONResponse:
     """Cualquier excepción no prevista."""
     # El traceback va al log, nunca a la respuesta: filtrarlo expondría rutas
@@ -95,6 +123,7 @@ ERROR_HANDLERS: dict[type[Exception], ExceptionHandler] = {
     AppError: app_error_handler,
     RequestValidationError: validation_error_handler,
     StarletteHTTPException: http_exception_handler,
+    IntegrityError: integrity_error_handler,
     Exception: unhandled_exception_handler,
 }
 

@@ -28,7 +28,7 @@
 --   [x] categories
 --   [x] payment_plans
 --   [x] transactions
---   [ ] budgets
+--   [x] budgets
 --
 -- =============================================================
 -- Aplicación de finanzas personales multiusuario. El dominio se

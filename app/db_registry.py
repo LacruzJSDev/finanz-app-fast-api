@@ -1,6 +1,7 @@
 from app.account_groups.models import AccountGroup, AccountGroupMember, Invitation
 from app.accounts.models import Account
 from app.auth.models import AuthProvider, UserSession
+from app.budgets.models import Budget
 from app.categories.models import Category
 from app.payment_plans.models import PaymentPlan
 from app.transactions.models import Transaction
@@ -17,4 +18,5 @@ __all__ = [
     "Category",
     "Transaction",
     "PaymentPlan",
+    "Budget",
 ]
