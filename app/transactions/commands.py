@@ -32,6 +32,28 @@ class TransactionRowCommand:
 
 
 @dataclass
+class TransactionFilterCommand:
+    """Criterios de una consulta plana. group_id es el ámbito, no un filtro
+    (ARCHITECTURE.md §8.3); el resto restringe solo si viene informado."""
+
+    group_id: uuid.UUID
+    account_id: uuid.UUID | None = None
+    category_id: uuid.UUID | None = None
+    uncategorized: bool = False
+    type: TransactionTypeEnum | None = None
+    date_from: date_ | None = None
+    date_to: date_ | None = None
+    q: str | None = None
+
+
+@dataclass
+class DailySpendCommand:
+    group_id: uuid.UUID
+    date: date_
+    account_id: uuid.UUID | None = None
+
+
+@dataclass
 class UpdateTransactionCommand:
     amount: int | None
     type: TransactionTypeEnum | None

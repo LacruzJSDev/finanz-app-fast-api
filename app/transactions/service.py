@@ -6,12 +6,18 @@ from app.categories.repository import CategoryRepository
 from app.shared.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.transactions.commands import (
     CreateTransactionCommand,
+    DailySpendCommand,
+    TransactionFilterCommand,
     TransactionRowCommand,
     UpdateTransactionCommand,
 )
 from app.transactions.models import TransactionTypeEnum
 from app.transactions.repository import TransactionRepository
-from app.transactions.schemas import TransactionRead
+from app.transactions.schemas import (
+    CategorySummaryRead,
+    DailySpendRead,
+    TransactionRead,
+)
 
 
 @dataclass
@@ -36,6 +42,62 @@ class TransactionService:
         )
         items = [TransactionRead.model_validate(t) for t in transactions]
         return PaginatedTransactions(items=items, total=total)
+
+    def get_filtered_transactions(
+        self, filters: TransactionFilterCommand, limit: int, offset: int
+    ) -> PaginatedTransactions:
+        self._check_filter_scope(filters.group_id, filters.account_id)
+        self._check_category(filters.category_id, filters.group_id)
+        transactions, total = self.transaction_repo.get_filtered_transactions(
+            filters, limit, offset
+        )
+        items = [TransactionRead.model_validate(t) for t in transactions]
+        return PaginatedTransactions(items=items, total=total)
+
+    def get_category_summary(
+        self, filters: TransactionFilterCommand
+    ) -> list[CategorySummaryRead]:
+        self._check_filter_scope(filters.group_id, filters.account_id)
+        self._check_category(filters.category_id, filters.group_id)
+        rows = self.transaction_repo.get_category_summary(filters)
+        return [
+            CategorySummaryRead(
+                root_category_id=row.root_category_id,
+                root_category_name=row.root_category_name,
+                income=row.income,
+                expense=row.expense,
+                transaction_count=row.transaction_count,
+            )
+            for row in rows
+        ]
+
+    def get_daily_spend(self, command: DailySpendCommand) -> DailySpendRead:
+        self._check_filter_scope(command.group_id, command.account_id)
+        # Un día concreto es el mismo juego de filtros con el rango cerrado
+        # sobre una sola fecha, de modo que "gastado hoy" cuadra con lo que
+        # devuelve el listado de ese día (ARCHITECTURE.md §8.3).
+        filters = TransactionFilterCommand(
+            group_id=command.group_id,
+            account_id=command.account_id,
+            type=TransactionTypeEnum.EXPENSE,
+            date_from=command.date,
+            date_to=command.date,
+        )
+        spent, transaction_count = self.transaction_repo.get_spent_on_date(filters)
+        return DailySpendRead(
+            date=command.date, spent=spent, transaction_count=transaction_count
+        )
+
+    def _check_filter_scope(
+        self, group_id: uuid.UUID, account_id: uuid.UUID | None
+    ) -> None:
+        """Sin esto, un miembro legítimo del grupo leería movimientos de otro
+        pasando un account_id ajeno (transactions.md §5)."""
+        if account_id is None:
+            return
+        account = self.account_repo.get_account_by_id(account_id)
+        if account is None or account.group_id != group_id:
+            raise ConflictError("La cuenta no pertenece al grupo")
 
     def get_transaction(
         self, account_id: uuid.UUID, transaction_id: uuid.UUID
