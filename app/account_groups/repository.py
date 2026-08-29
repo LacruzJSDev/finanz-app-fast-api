@@ -51,6 +51,11 @@ class AccountGroupsRepository:
         )
         return list(account_groups)
 
+    def get_group_by_id(self, group_id: uuid.UUID) -> AccountGroup | None:
+        return self.db.execute(
+            select(AccountGroup).where(AccountGroup.id == group_id)
+        ).scalar_one_or_none()
+
     def update_group(
         self, membership: AccountGroupMember, group: UpdateAccountGroupCommand
     ) -> AccountGroup:
@@ -165,6 +170,18 @@ class InvitationRepository:
         ).scalar_one_or_none()
         return invitation
 
+    def get_invitations_by_group_id(self, group_id: uuid.UUID) -> list[Invitation]:
+        invitations = (
+            self.db.execute(
+                select(Invitation)
+                .where(Invitation.group_id == group_id)
+                .order_by(Invitation.created_at.desc())
+            )
+            .scalars()
+            .all()
+        )
+        return list(invitations)
+
     def get_invitation_by_code(self, code: str) -> Invitation | None:
         invitation = self.db.execute(
             select(Invitation).where(Invitation.code == code)
@@ -183,6 +200,9 @@ class InvitationRepository:
             .values(status=InvitationStatusEnum.EXPIRED)
             .returning(Invitation)
         ).scalar_one()
+
+    def delete_invitation_by_id(self, invitation_id: uuid.UUID) -> None:
+        self.db.execute(delete(Invitation).where(Invitation.id == invitation_id))
 
     def accept_invitation_by_id(
         self,

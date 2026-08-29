@@ -90,6 +90,14 @@ class InvitationRead(BaseModel):
     created_at: datetime
 
 
+class InvitationDetailRead(InvitationRead):
+    """Invitación consultada por su código. Es la única que embebe el grupo:
+    quien la consulta todavía no pertenece a él y no puede pedirlo aparte
+    (account_groups.md §4)."""
+
+    group: GroupRead
+
+
 class PaydayRead(BaseModel):
     """Ancla de cobro del grupo: cuándo entra el próximo ingreso recurrente y
     cuánto (payment_plans.md §5)."""

@@ -17,6 +17,7 @@ from app.account_groups.schemas import (
     GroupMemberRead,
     GroupOverviewRead,
     GroupRead,
+    InvitationDetailRead,
     InvitationRead,
     UpdateGroupRequest,
 )
@@ -139,12 +140,45 @@ def create_invitation(
 
 
 @router.get(
+    "/{group_id}/invitations",
+    responses=responses(UNAUTHORIZED, FORBIDDEN),
+)
+def get_group_invitations(
+    service: AccountGroupServiceDep,
+    group_id: uuid.UUID,
+    membership: RequireOwnerOrAdmin,
+) -> CollectionResponse[InvitationRead]:
+    """Invitaciones del grupo en cualquier estado, con su código"""
+    result = service.get_group_invitations(group_id)
+    collection_response = CollectionResponse[InvitationRead](items=result)
+    return collection_response
+
+
+@router.delete(
+    "/{group_id}/invitations/{invitation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=responses(UNAUTHORIZED, FORBIDDEN, NOT_FOUND, CONFLICT),
+)
+def revoke_invitation(
+    service: AccountGroupServiceDep,
+    group_id: uuid.UUID,
+    invitation_id: uuid.UUID,
+    membership: RequireOwnerOrAdmin,
+) -> None:
+    """Revoca una invitación no aceptada"""
+    service.revoke_invitation(group_id, invitation_id)
+    return
+
+
+@router.get(
     "/invitations/{code}",
-    responses=responses(UNAUTHORIZED, NOT_FOUND, CONFLICT),
+    # Sin CONFLICT: account_groups.md §4 dice que una invitación aceptada o
+    # caducada no es un error aquí, se devuelve con su status real.
+    responses=responses(UNAUTHORIZED, NOT_FOUND),
 )
 def get_invitation(
     service: AccountGroupServiceDep, code: str, user: CurrentUser
-) -> InvitationRead:
+) -> InvitationDetailRead:
     result = service.get_invitation(code)
     return result
 

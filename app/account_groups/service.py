@@ -26,6 +26,7 @@ from app.account_groups.schemas import (
     GroupMemberRead,
     GroupOverviewRead,
     GroupRead,
+    InvitationDetailRead,
     InvitationRead,
     InvitedByRead,
     PaydayRead,
@@ -46,6 +47,19 @@ from app.transactions.models import TransactionTypeEnum
 from app.transactions.service import TransactionService
 from app.users.models import User
 from app.users.repository import UserRepository
+
+
+def is_invitation_expired(invitation: Invitation, now: datetime) -> bool:
+    """Única definición de la caducidad perezosa (account_groups.md §5): la
+    aplican tanto el GET por código como el listado por grupo, y si viviera
+    duplicada acabarían divergiendo.
+
+    Solo alcanza a las `pending`: una `accepted` caducada sigue siendo el
+    registro de que alguien entró al grupo.
+    """
+    if invitation.status != InvitationStatusEnum.PENDING:
+        return False
+    return invitation.expires_at < now or invitation.invited_by is None
 
 
 @dataclass
@@ -99,6 +113,15 @@ class AccountGroupService:
             created_at=invitation.created_at,
         )
         return invitation_read
+
+    def _to_invitation_detail_read(
+        self, invitation: Invitation, user: User | None, group: AccountGroup
+    ) -> InvitationDetailRead:
+        invitation_read = self._to_invitation_read(invitation, user)
+        return InvitationDetailRead(
+            **invitation_read.model_dump(),
+            group=self._to_group_read(group),
+        )
 
     def create_group(self, user_id: uuid.UUID, group: AccountGroupCommand) -> GroupRead:
         account_group = self.account_group_repo.create_account_group(group)
@@ -229,20 +252,68 @@ class AccountGroupService:
         invitation_read = self._to_invitation_read(invitation, invited_by)
         return invitation_read
 
-    def get_invitation(self, code: str) -> InvitationRead:
+    def get_invitation(self, code: str) -> InvitationDetailRead:
         invitation = self.invitation_repo.get_invitation_by_code(code)
         if invitation is None:
             raise NotFoundError("Invitación no encontrada")
 
         now = datetime.now(timezone.utc)
-        if invitation.expires_at < now or invitation.invited_by is None:
-            expired_invitation = self.invitation_repo.expire_invitation_by_id(
-                invitation.id
-            )
-            return self._to_invitation_read(expired_invitation, None)
+        if is_invitation_expired(invitation, now):
+            invitation = self.invitation_repo.expire_invitation_by_id(invitation.id)
 
-        invited_by = self.user_repo.get_user_by_id(invitation.invited_by)
-        return self._to_invitation_read(invitation, invited_by)
+        # account_groups.md §4: invited_by solo va a null cuando el invitador
+        # ha borrado su cuenta, no por el hecho de haber caducado — "esta
+        # invitación de Juan ha caducado" le dice algo a quien la recibe.
+        invited_by = (
+            self.user_repo.get_user_by_id(invitation.invited_by)
+            if invitation.invited_by is not None
+            else None
+        )
+
+        group = self.account_group_repo.get_group_by_id(invitation.group_id)
+        if group is None:
+            raise NotFoundError("Invitación no encontrada")
+        return self._to_invitation_detail_read(invitation, invited_by, group)
+
+    def get_group_invitations(self, group_id: uuid.UUID) -> list[InvitationRead]:
+        invitations = self.invitation_repo.get_invitations_by_group_id(group_id)
+        now = datetime.now(timezone.utc)
+        current = [
+            (
+                self.invitation_repo.expire_invitation_by_id(invitation.id)
+                if is_invitation_expired(invitation, now)
+                else invitation
+            )
+            for invitation in invitations
+        ]
+
+        inviter_ids = {
+            invitation.invited_by
+            for invitation in current
+            if invitation.invited_by is not None
+        }
+        users = self.user_repo.get_users_by_ids(inviter_ids)
+        users_by_id = {user.id: user for user in users}
+
+        invitations_read: list[InvitationRead] = []
+        for invitation in current:
+            inviter = (
+                users_by_id.get(invitation.invited_by)
+                if invitation.invited_by is not None
+                else None
+            )
+            invitations_read.append(self._to_invitation_read(invitation, inviter))
+
+        return invitations_read
+
+    def revoke_invitation(self, group_id: uuid.UUID, invitation_id: uuid.UUID) -> None:
+        invitation = self.invitation_repo.get_invitation_by_id(invitation_id)
+        if invitation is None or invitation.group_id != group_id:
+            raise NotFoundError("Invitación no encontrada")
+        if invitation.status == InvitationStatusEnum.ACCEPTED:
+            raise ConflictError("Una invitación ya aceptada no puede revocarse")
+
+        self.invitation_repo.delete_invitation_by_id(invitation_id)
 
     def accept_invitation(
         self, group_id: uuid.UUID, user_id: uuid.UUID, invitation_id: uuid.UUID
@@ -257,13 +328,13 @@ class AccountGroupService:
         now = datetime.now(timezone.utc)
         if invitation is None or invitation.group_id != group_id:
             raise NotFoundError("Invitación no encontrada")
+        if is_invitation_expired(invitation, now):
+            self.invitation_repo.expire_invitation_by_id(invitation_id)
+            raise ConflictError("La invitación ha expirado")
         if (
-            invitation.expires_at < now
+            invitation.status == InvitationStatusEnum.EXPIRED
             or invitation.invited_by is None
-            or invitation.status == InvitationStatusEnum.EXPIRED
         ):
-            if invitation.status == InvitationStatusEnum.PENDING:
-                self.invitation_repo.expire_invitation_by_id(invitation_id)
             raise ConflictError("La invitación ha expirado")
         if invitation.status == InvitationStatusEnum.ACCEPTED:
             raise ConflictError("La invitación ya ha sido aceptada")

@@ -492,31 +492,43 @@ class TestGetInvitation:
         service: AccountGroupService,
         invitation_repo: MagicMock,
         user_repo: MagicMock,
+        account_group_repo: MagicMock,
     ):
+        inviter = make_user(name="Ana")
         invitation = make_invitation(
-            expires_at=datetime.now(timezone.utc) - timedelta(days=1)
+            invited_by=inviter.id,
+            expires_at=datetime.now(timezone.utc) - timedelta(days=1),
         )
         invitation_repo.get_invitation_by_code.return_value = invitation
         invitation_repo.expire_invitation_by_id.return_value = make_invitation(
-            id=invitation.id, status=InvitationStatusEnum.EXPIRED
+            id=invitation.id,
+            invited_by=inviter.id,
+            status=InvitationStatusEnum.EXPIRED,
         )
+        user_repo.get_user_by_id.return_value = inviter
+        account_group_repo.get_group_by_id.return_value = make_group()
 
         result = service.get_invitation("expired-code")
 
         assert result.status == InvitationStatusEnum.EXPIRED
         invitation_repo.expire_invitation_by_id.assert_called_once_with(invitation.id)
-        user_repo.get_user_by_id.assert_not_called()
+        # account_groups.md §4: caducar no oculta quién invitó — solo lo oculta
+        # que esa persona haya borrado su cuenta.
+        assert result.invited_by is not None
+        assert result.invited_by.name == "Ana"
 
     def test_lazily_expires_when_inviter_deleted(
         self,
         service: AccountGroupService,
         invitation_repo: MagicMock,
+        account_group_repo: MagicMock,
     ):
         invitation = make_invitation(invited_by=None)
         invitation_repo.get_invitation_by_code.return_value = invitation
         invitation_repo.expire_invitation_by_id.return_value = make_invitation(
             id=invitation.id, invited_by=None, status=InvitationStatusEnum.EXPIRED
         )
+        account_group_repo.get_group_by_id.return_value = make_group()
 
         result = service.get_invitation("orphaned-code")
 
@@ -528,16 +540,227 @@ class TestGetInvitation:
         service: AccountGroupService,
         invitation_repo: MagicMock,
         user_repo: MagicMock,
+        account_group_repo: MagicMock,
     ):
         inviter_id = uuid.uuid4()
         invitation = make_invitation(invited_by=inviter_id)
         invitation_repo.get_invitation_by_code.return_value = invitation
         user_repo.get_user_by_id.return_value = make_user(id=inviter_id)
+        account_group_repo.get_group_by_id.return_value = make_group()
 
         result = service.get_invitation(invitation.code)
 
         assert result.status == InvitationStatusEnum.PENDING
         invitation_repo.expire_invitation_by_id.assert_not_called()
+
+    def test_leaves_an_accepted_invitation_untouched(
+        self,
+        service: AccountGroupService,
+        invitation_repo: MagicMock,
+        user_repo: MagicMock,
+        account_group_repo: MagicMock,
+    ):
+        # Una aceptada cuyo plazo ya pasó conserva su status: la caducidad
+        # perezosa solo alcanza a las pending (account_groups.md §5).
+        inviter_id = uuid.uuid4()
+        invitation = make_invitation(
+            invited_by=inviter_id,
+            status=InvitationStatusEnum.ACCEPTED,
+            expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+        )
+        invitation_repo.get_invitation_by_code.return_value = invitation
+        user_repo.get_user_by_id.return_value = make_user(id=inviter_id)
+        account_group_repo.get_group_by_id.return_value = make_group()
+
+        result = service.get_invitation(invitation.code)
+
+        assert result.status == InvitationStatusEnum.ACCEPTED
+        invitation_repo.expire_invitation_by_id.assert_not_called()
+
+    def test_embeds_the_full_group(
+        self,
+        service: AccountGroupService,
+        invitation_repo: MagicMock,
+        user_repo: MagicMock,
+        account_group_repo: MagicMock,
+    ):
+        inviter_id = uuid.uuid4()
+        group = make_group(name="Piso compartido", color="#fff", icon="home")
+        invitation = make_invitation(group_id=group.id, invited_by=inviter_id)
+        invitation_repo.get_invitation_by_code.return_value = invitation
+        user_repo.get_user_by_id.return_value = make_user(id=inviter_id)
+        account_group_repo.get_group_by_id.return_value = group
+
+        result = service.get_invitation(invitation.code)
+
+        assert account_group_repo.get_group_by_id.call_args.args[0] == group.id
+        assert result.group.id == group.id
+        assert result.group.name == "Piso compartido"
+        assert result.group.color == "#fff"
+        assert result.group.icon == "home"
+
+
+def _expired_copy(invitation_id: uuid.UUID) -> Invitation:
+    return make_invitation(id=invitation_id, status=InvitationStatusEnum.EXPIRED)
+
+
+class TestGetGroupInvitations:
+    def test_returns_every_invitation_with_its_code(
+        self, service: AccountGroupService, invitation_repo: MagicMock
+    ):
+        group_id = uuid.uuid4()
+        pending = make_invitation(group_id=group_id, code="pending-code")
+        accepted = make_invitation(
+            group_id=group_id,
+            code="accepted-code",
+            status=InvitationStatusEnum.ACCEPTED,
+        )
+        invitation_repo.get_invitations_by_group_id.return_value = [accepted, pending]
+
+        result = service.get_group_invitations(group_id)
+
+        assert invitation_repo.get_invitations_by_group_id.call_args.args[0] == group_id
+        assert [invitation.code for invitation in result] == [
+            "accepted-code",
+            "pending-code",
+        ]
+        assert [invitation.status for invitation in result] == [
+            InvitationStatusEnum.ACCEPTED,
+            InvitationStatusEnum.PENDING,
+        ]
+
+    def test_expires_a_pending_past_expiry_and_leaves_the_valid_one(
+        self, service: AccountGroupService, invitation_repo: MagicMock
+    ):
+        group_id = uuid.uuid4()
+        stale = make_invitation(
+            group_id=group_id,
+            expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+        )
+        fresh = make_invitation(group_id=group_id)
+        invitation_repo.get_invitations_by_group_id.return_value = [stale, fresh]
+        invitation_repo.expire_invitation_by_id.side_effect = _expired_copy
+
+        result = service.get_group_invitations(group_id)
+
+        assert [invitation.status for invitation in result] == [
+            InvitationStatusEnum.EXPIRED,
+            InvitationStatusEnum.PENDING,
+        ]
+        invitation_repo.expire_invitation_by_id.assert_called_once_with(stale.id)
+
+    def test_expires_a_pending_whose_inviter_was_deleted(
+        self, service: AccountGroupService, invitation_repo: MagicMock
+    ):
+        group_id = uuid.uuid4()
+        orphaned = make_invitation(group_id=group_id, invited_by=None)
+        invitation_repo.get_invitations_by_group_id.return_value = [orphaned]
+        invitation_repo.expire_invitation_by_id.side_effect = _expired_copy
+
+        result = service.get_group_invitations(group_id)
+
+        assert result[0].status == InvitationStatusEnum.EXPIRED
+        invitation_repo.expire_invitation_by_id.assert_called_once_with(orphaned.id)
+
+    def test_does_not_expire_an_accepted_invitation(
+        self, service: AccountGroupService, invitation_repo: MagicMock
+    ):
+        # Su fila es el registro de que alguien entró al grupo, aunque su
+        # plazo haya pasado (account_groups.md §5).
+        group_id = uuid.uuid4()
+        accepted = make_invitation(
+            group_id=group_id,
+            status=InvitationStatusEnum.ACCEPTED,
+            expires_at=datetime.now(timezone.utc) - timedelta(days=30),
+        )
+        invitation_repo.get_invitations_by_group_id.return_value = [accepted]
+
+        result = service.get_group_invitations(group_id)
+
+        assert result[0].status == InvitationStatusEnum.ACCEPTED
+        invitation_repo.expire_invitation_by_id.assert_not_called()
+
+    def test_resolves_the_inviter_of_each_invitation(
+        self,
+        service: AccountGroupService,
+        invitation_repo: MagicMock,
+        user_repo: MagicMock,
+    ):
+        group_id = uuid.uuid4()
+        inviter_id = uuid.uuid4()
+        invitation = make_invitation(group_id=group_id, invited_by=inviter_id)
+        invitation_repo.get_invitations_by_group_id.return_value = [invitation]
+        user_repo.get_users_by_ids.side_effect = None
+        user_repo.get_users_by_ids.return_value = [
+            make_user(id=inviter_id, name="Ana", email="ana@test.com")
+        ]
+
+        result = service.get_group_invitations(group_id)
+
+        assert user_repo.get_users_by_ids.call_args.args[0] == {inviter_id}
+        assert result[0].invited_by is not None
+        assert result[0].invited_by.name == "Ana"
+
+
+class TestRevokeInvitation:
+    def test_raises_conflict_when_accepted(
+        self, service: AccountGroupService, invitation_repo: MagicMock
+    ):
+        group_id = uuid.uuid4()
+        invitation = make_invitation(
+            group_id=group_id, status=InvitationStatusEnum.ACCEPTED
+        )
+        invitation_repo.get_invitation_by_id.return_value = invitation
+
+        with pytest.raises(ConflictError):
+            service.revoke_invitation(group_id, invitation.id)
+
+        invitation_repo.delete_invitation_by_id.assert_not_called()
+
+    def test_deletes_a_pending_invitation(
+        self, service: AccountGroupService, invitation_repo: MagicMock
+    ):
+        group_id = uuid.uuid4()
+        invitation = make_invitation(group_id=group_id)
+        invitation_repo.get_invitation_by_id.return_value = invitation
+
+        service.revoke_invitation(group_id, invitation.id)
+
+        invitation_repo.delete_invitation_by_id.assert_called_once_with(invitation.id)
+
+    def test_deletes_an_expired_invitation(
+        self, service: AccountGroupService, invitation_repo: MagicMock
+    ):
+        group_id = uuid.uuid4()
+        invitation = make_invitation(
+            group_id=group_id, status=InvitationStatusEnum.EXPIRED
+        )
+        invitation_repo.get_invitation_by_id.return_value = invitation
+
+        service.revoke_invitation(group_id, invitation.id)
+
+        invitation_repo.delete_invitation_by_id.assert_called_once_with(invitation.id)
+
+    def test_raises_not_found_when_missing(
+        self, service: AccountGroupService, invitation_repo: MagicMock
+    ):
+        invitation_repo.get_invitation_by_id.return_value = None
+
+        with pytest.raises(NotFoundError):
+            service.revoke_invitation(uuid.uuid4(), uuid.uuid4())
+
+        invitation_repo.delete_invitation_by_id.assert_not_called()
+
+    def test_raises_not_found_when_invitation_belongs_to_other_group(
+        self, service: AccountGroupService, invitation_repo: MagicMock
+    ):
+        invitation = make_invitation(group_id=uuid.uuid4())
+        invitation_repo.get_invitation_by_id.return_value = invitation
+
+        with pytest.raises(NotFoundError):
+            service.revoke_invitation(uuid.uuid4(), invitation.id)
+
+        invitation_repo.delete_invitation_by_id.assert_not_called()
 
 
 class TestAcceptInvitation:
@@ -685,9 +908,7 @@ class TestBuildProjection:
             amount=10_000, due_date=today + timedelta(days=2)
         )
 
-        points = build_projection(
-            100_000, [expense], today, today + timedelta(days=3)
-        )
+        points = build_projection(100_000, [expense], today, today + timedelta(days=3))
 
         assert [point.balance for point in points] == [
             100_000,
@@ -702,9 +923,7 @@ class TestBuildProjection:
             amount=10_000, due_date=today - timedelta(days=5)
         )
 
-        points = build_projection(
-            100_000, [expense], today, today + timedelta(days=2)
-        )
+        points = build_projection(100_000, [expense], today, today + timedelta(days=2))
 
         assert [point.balance for point in points] == [90_000, 90_000, 90_000]
 
@@ -716,9 +935,7 @@ class TestBuildProjection:
             make_pending_expense(amount=5_000, due_date=due_date),
         ]
 
-        points = build_projection(
-            100_000, expenses, today, today + timedelta(days=2)
-        )
+        points = build_projection(100_000, expenses, today, today + timedelta(days=2))
 
         assert [point.date for point in points] == [
             today,
@@ -848,9 +1065,7 @@ class TestGroupOverview:
         payday_plan = make_payment_plan(
             type=TransactionTypeEnum.INCOME, amount=200_000, next_due_date=payday
         )
-        rent = make_payment_plan(
-            amount=60_000, next_due_date=today + timedelta(days=2)
-        )
+        rent = make_payment_plan(amount=60_000, next_due_date=today + timedelta(days=2))
         account_service.get_group_balance.return_value = make_group_balance(
             available=100_000
         )
