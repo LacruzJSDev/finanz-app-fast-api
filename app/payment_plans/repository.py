@@ -11,6 +11,7 @@ from app.payment_plans.commands import (
     UpdatePaymentPlanCommand,
 )
 from app.payment_plans.models import FrequencyUnitEnum, PaymentPlan
+from app.shared.commands import UNSET
 from app.transactions.models import TransactionTypeEnum
 
 
@@ -115,20 +116,20 @@ class PaymentPlanRepository:
             | FrequencyUnitEnum
             | None,
         ] = {}
-        if command.amount is not None:
+        if command.amount is not UNSET:
             values["amount"] = command.amount
-        if command.type is not None:
+        if command.type is not UNSET:
             values["type"] = command.type
-        if command.category_id is not None:
+        if command.category_id is not UNSET:
             values["category_id"] = command.category_id
-        if command.description is not None:
+        if command.description is not UNSET:
             values["description"] = command.description
-        if command.next_due_date is not None:
+        if command.next_due_date is not UNSET:
             values["next_due_date"] = command.next_due_date
-        if command.is_active is not None:
+        if command.is_active is not UNSET:
             values["is_active"] = command.is_active
 
-        if command.is_recurring is not None:
+        if command.is_recurring is not UNSET:
             values["is_recurring"] = command.is_recurring
             if command.is_recurring is False:
                 # Apagar is_recurring limpia la periodicidad: el schema ya
@@ -140,12 +141,12 @@ class PaymentPlanRepository:
 
         if (
             "frequency_interval" not in values
-            and command.frequency_interval is not None
+            and command.frequency_interval is not UNSET
         ):
             values["frequency_interval"] = command.frequency_interval
-        if "frequency_unit" not in values and command.frequency_unit is not None:
+        if "frequency_unit" not in values and command.frequency_unit is not UNSET:
             values["frequency_unit"] = command.frequency_unit
-        if "end_date" not in values and command.end_date is not None:
+        if "end_date" not in values and command.end_date is not UNSET:
             values["end_date"] = command.end_date
 
         return self.db.execute(

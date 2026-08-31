@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.accounts.commands import AccountCommand, UpdateAccountCommand
 from app.accounts.models import SPENDABLE_ACCOUNT_TYPES, Account, AccountTypeEnum
+from app.shared.commands import UNSET
 
 
 @dataclass
@@ -96,16 +97,18 @@ class AccountRepository:
     def update_account(
         self, account_id: uuid.UUID, account: UpdateAccountCommand
     ) -> Account:
-        values: dict[str, str | bool] = {}
-        if account.name is not None:
+        # UNSET es la marca de ausencia: un None que llega aquí es un null
+        # explícito del cliente y sí se escribe (ARCHITECTURE.md §5.5).
+        values: dict[str, str | bool | AccountTypeEnum | None] = {}
+        if account.name is not UNSET:
             values["name"] = account.name
-        if account.type is not None:
+        if account.type is not UNSET:
             values["type"] = account.type
-        if account.color is not None:
+        if account.color is not UNSET:
             values["color"] = account.color
-        if account.icon is not None:
+        if account.icon is not UNSET:
             values["icon"] = account.icon
-        if account.is_active is not None:
+        if account.is_active is not UNSET:
             values["is_active"] = account.is_active
 
         return self.db.execute(

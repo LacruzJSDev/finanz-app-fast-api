@@ -3,6 +3,7 @@ from datetime import date, datetime, timezone
 from unittest.mock import MagicMock
 
 import pytest
+from pydantic import ValidationError
 
 from app.accounts.models import Account, AccountTypeEnum
 from app.accounts.repository import AccountRepository
@@ -14,7 +15,9 @@ from app.payment_plans.commands import (
 )
 from app.payment_plans.models import FrequencyUnitEnum, PaymentPlan
 from app.payment_plans.repository import PaymentPlanRepository
+from app.payment_plans.schemas import UpdatePaymentPlanRequest
 from app.payment_plans.service import PaymentPlanService
+from app.shared.commands import UNSET
 from app.shared.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.transactions.models import TransactionTypeEnum
 
@@ -102,17 +105,19 @@ def make_create_command(**overrides: object) -> CreatePaymentPlanCommand:
 
 
 def make_update_command(**overrides: object) -> UpdatePaymentPlanCommand:
+    # Por defecto, nada enviado: UNSET, no None. None significaría "vacía este
+    # campo" (ARCHITECTURE.md §5.5).
     defaults: dict[str, object] = {
-        "amount": None,
-        "type": None,
-        "category_id": None,
-        "description": None,
-        "next_due_date": None,
-        "end_date": None,
-        "is_recurring": None,
-        "frequency_interval": None,
-        "frequency_unit": None,
-        "is_active": None,
+        "amount": UNSET,
+        "type": UNSET,
+        "category_id": UNSET,
+        "description": UNSET,
+        "next_due_date": UNSET,
+        "end_date": UNSET,
+        "is_recurring": UNSET,
+        "frequency_interval": UNSET,
+        "frequency_unit": UNSET,
+        "is_active": UNSET,
     }
     defaults.update(overrides)
     return UpdatePaymentPlanCommand(**defaults)  # pyright: ignore[reportArgumentType]
@@ -535,3 +540,51 @@ class TestUpdatePaymentPlan:
         result = service.update_payment_plan(account_id, plan.id, command)
 
         assert result.is_active is False
+
+
+class TestUpdatePaymentPlanClearingFields:
+    """ARCHITECTURE.md §5.5: null explícito vacía; ausente no toca nada."""
+
+    def test_explicit_null_description_reaches_the_repository(
+        self, service: PaymentPlanService, payment_plan_repo: MagicMock
+    ):
+        account_id = uuid.uuid4()
+        plan = make_plan(account_id=account_id, description="Alquiler")
+        payment_plan_repo.get_payment_plan_by_id.return_value = plan
+        payment_plan_repo.update_payment_plan.return_value = make_plan(
+            account_id=account_id, description=None
+        )
+
+        service.update_payment_plan(
+            account_id, plan.id, make_update_command(description=None)
+        )
+
+        applied = payment_plan_repo.update_payment_plan.call_args.args[1]
+        assert applied.description is None
+        assert applied.amount is UNSET
+
+    def test_explicit_null_category_skips_the_group_check(
+        self,
+        service: PaymentPlanService,
+        payment_plan_repo: MagicMock,
+        category_repo: MagicMock,
+    ):
+        account_id = uuid.uuid4()
+        plan = make_plan(account_id=account_id, category_id=uuid.uuid4())
+        payment_plan_repo.get_payment_plan_by_id.return_value = plan
+        payment_plan_repo.update_payment_plan.return_value = make_plan(
+            account_id=account_id, category_id=None
+        )
+
+        service.update_payment_plan(
+            account_id, plan.id, make_update_command(category_id=None)
+        )
+
+        applied = payment_plan_repo.update_payment_plan.call_args.args[1]
+        assert applied.category_id is None
+        category_repo.get_category_by_id.assert_not_called()
+
+    def test_rejects_explicit_null_on_not_null_columns(self):
+        for field in ("amount", "type", "next_due_date", "is_recurring", "is_active"):
+            with pytest.raises(ValidationError):
+                UpdatePaymentPlanRequest.model_validate({field: None})

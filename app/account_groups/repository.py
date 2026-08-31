@@ -18,6 +18,7 @@ from app.account_groups.models import (
     Invitation,
     InvitationStatusEnum,
 )
+from app.shared.commands import UNSET
 
 
 @dataclass
@@ -59,19 +60,18 @@ class AccountGroupsRepository:
     def update_group(
         self, membership: AccountGroupMember, group: UpdateAccountGroupCommand
     ) -> AccountGroup:
-        # None aquí significa "no lo mandó el cliente" (ver UpdateGroupRequest /
-        # router.py), no "bórralo" — así que solo se incluyen en el UPDATE las
-        # columnas que sí llegaron. Un UPDATE parcial no tiene una forma fija
-        # de antemano, así que el dict no puede evitarse aquí como sí se hace
-        # en create_account_group.
-        values: dict[str, str | bool] = {}
-        if group.name is not None:
+        # La marca de ausencia es UNSET; un None que llega aquí es un null
+        # explícito y sí se escribe (ARCHITECTURE.md §5.5). Un UPDATE parcial
+        # no tiene forma fija de antemano, así que el dict no puede evitarse
+        # aquí como sí se hace en create_account_group.
+        values: dict[str, str | bool | None] = {}
+        if group.name is not UNSET:
             values["name"] = group.name
-        if group.color is not None:
+        if group.color is not UNSET:
             values["color"] = group.color
-        if group.icon is not None:
+        if group.icon is not UNSET:
             values["icon"] = group.icon
-        if group.is_active is not None:
+        if group.is_active is not UNSET:
             values["is_active"] = group.is_active
 
         return self.db.execute(

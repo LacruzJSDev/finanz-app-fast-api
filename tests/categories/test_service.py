@@ -3,11 +3,14 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 import pytest
+from pydantic import ValidationError
 
 from app.categories.commands import CategoryCommand, UpdateCategoryCommand
 from app.categories.models import Category
 from app.categories.repository import CategoryRepository
+from app.categories.schemas import UpdateCategoryRequest
 from app.categories.service import CategoryService
+from app.shared.commands import UNSET
 from app.shared.exceptions import BadRequestError, ConflictError, NotFoundError
 
 
@@ -161,9 +164,7 @@ class TestGetCategory:
 
 class TestUpdateCategory:
     def test_raises_bad_request_when_no_fields(self, service: CategoryService):
-        command = UpdateCategoryCommand(
-            name=None, parent_id=None, color=None, icon=None, is_active=None
-        )
+        command = UpdateCategoryCommand()
 
         with pytest.raises(BadRequestError):
             service.update_category(uuid.uuid4(), command)
@@ -173,9 +174,7 @@ class TestUpdateCategory:
     ):
         updated = make_category(name="Renamed")
         category_repo.update_category.return_value = updated
-        command = UpdateCategoryCommand(
-            name="Renamed", parent_id=None, color=None, icon=None, is_active=None
-        )
+        command = UpdateCategoryCommand(name="Renamed")
 
         result = service.update_category(uuid.uuid4(), command)
 
@@ -186,9 +185,7 @@ class TestUpdateCategory:
         self, service: CategoryService, category_repo: MagicMock
     ):
         category_repo.get_category_by_id.return_value = None
-        command = UpdateCategoryCommand(
-            name=None, parent_id=uuid.uuid4(), color=None, icon=None, is_active=None
-        )
+        command = UpdateCategoryCommand(parent_id=uuid.uuid4())
 
         with pytest.raises(NotFoundError):
             service.update_category(uuid.uuid4(), command)
@@ -200,9 +197,7 @@ class TestUpdateCategory:
         group_id = uuid.uuid4()
         current = make_category(id=category_id, group_id=group_id)
         category_repo.get_category_by_id.return_value = current
-        command = UpdateCategoryCommand(
-            name=None, parent_id=category_id, color=None, icon=None, is_active=None
-        )
+        command = UpdateCategoryCommand(parent_id=category_id)
 
         with pytest.raises(ConflictError):
             service.update_category(category_id, command)
@@ -221,13 +216,7 @@ class TestUpdateCategory:
         category_repo.get_category_by_id.side_effect = get_by_id
         category_repo.has_children.return_value = True
 
-        command = UpdateCategoryCommand(
-            name=None,
-            parent_id=other_root.id,
-            color=None,
-            icon=None,
-            is_active=None,
-        )
+        command = UpdateCategoryCommand(parent_id=other_root.id)
 
         with pytest.raises(ConflictError):
             service.update_category(category_id, command)
@@ -250,9 +239,7 @@ class TestUpdateCategory:
         )
         category_repo.update_category.return_value = updated
 
-        command = UpdateCategoryCommand(
-            name=None, parent_id=new_root.id, color=None, icon=None, is_active=None
-        )
+        command = UpdateCategoryCommand(parent_id=new_root.id)
         result = service.update_category(category_id, command)
 
         assert result.parent_id == new_root.id
@@ -262,11 +249,42 @@ class TestUpdateCategory:
     ):
         updated = make_category(is_active=False)
         category_repo.update_category.return_value = updated
-        command = UpdateCategoryCommand(
-            name=None, parent_id=None, color=None, icon=None, is_active=False
-        )
+        command = UpdateCategoryCommand(is_active=False)
 
         result = service.update_category(uuid.uuid4(), command)
 
         assert result.is_active is False
         category_repo.get_category_by_id.assert_not_called()
+
+
+class TestUpdateCategoryClearingFields:
+    """ARCHITECTURE.md §5.5: null explícito vacía; ausente no toca nada."""
+
+    def test_explicit_null_parent_promotes_to_root_without_checks(
+        self, service: CategoryService, category_repo: MagicMock
+    ):
+        category_repo.update_category.return_value = make_category(parent_id=None)
+
+        service.update_category(uuid.uuid4(), UpdateCategoryCommand(parent_id=None))
+
+        applied = category_repo.update_category.call_args.args[1]
+        assert applied.parent_id is None
+        # Vaciar no asigna padre, así que no hay jerarquía que validar.
+        category_repo.get_category_by_id.assert_not_called()
+
+    def test_absent_fields_stay_unset(
+        self, service: CategoryService, category_repo: MagicMock
+    ):
+        category_repo.update_category.return_value = make_category(color=None)
+
+        service.update_category(uuid.uuid4(), UpdateCategoryCommand(color=None))
+
+        applied = category_repo.update_category.call_args.args[1]
+        assert applied.color is None
+        assert applied.parent_id is UNSET
+        assert applied.icon is UNSET
+
+    def test_rejects_explicit_null_on_not_null_columns(self):
+        for field in ("name", "is_active"):
+            with pytest.raises(ValidationError):
+                UpdateCategoryRequest.model_validate({field: None})

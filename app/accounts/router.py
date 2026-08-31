@@ -16,6 +16,7 @@ from app.accounts.schemas import (
     GroupBalanceRead,
     UpdateAccountRequest,
 )
+from app.shared.commands import UNSET
 from app.shared.dependencies import CurrentUser
 from app.shared.openapi_responses import (
     BAD_REQUEST,
@@ -99,10 +100,10 @@ def update_account(
 
     fields_set = payload.model_fields_set
     update_account_command = UpdateAccountCommand(
-        name=payload.name if "name" in fields_set else None,
-        type=payload.type if "type" in fields_set else None,
-        color=payload.color if "color" in fields_set else None,
-        icon=payload.icon if "icon" in fields_set else None,
-        is_active=payload.is_active if "is_active" in fields_set else None,
+        name=payload.name if payload.name is not None else UNSET,
+        type=payload.type if payload.type is not None else UNSET,
+        color=payload.color if "color" in fields_set else UNSET,
+        icon=payload.icon if "icon" in fields_set else UNSET,
+        is_active=payload.is_active if payload.is_active is not None else UNSET,
     )
     return service.update_account(account_id, update_account_command)

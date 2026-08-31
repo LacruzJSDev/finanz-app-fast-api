@@ -3,11 +3,14 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 import pytest
+from pydantic import ValidationError
 
 from app.accounts.commands import AccountCommand, UpdateAccountCommand
 from app.accounts.models import SPENDABLE_ACCOUNT_TYPES, Account, AccountTypeEnum
 from app.accounts.repository import AccountRepository, GroupBalanceRow
+from app.accounts.schemas import UpdateAccountRequest
 from app.accounts.service import AccountService
+from app.shared.commands import UNSET
 from app.shared.exceptions import BadRequestError, ConflictError, NotFoundError
 
 
@@ -272,9 +275,7 @@ class TestGetAccount:
 
 class TestUpdateAccount:
     def test_raises_bad_request_when_no_fields(self, service: AccountService):
-        command = UpdateAccountCommand(
-            name=None, type=None, color=None, icon=None, is_active=None
-        )
+        command = UpdateAccountCommand()
 
         with pytest.raises(BadRequestError):
             service.update_account(uuid.uuid4(), command)
@@ -284,9 +285,7 @@ class TestUpdateAccount:
     ):
         updated = make_account(name="Renamed")
         account_repo.update_account.return_value = updated
-        command = UpdateAccountCommand(
-            name="Renamed", type=None, color=None, icon=None, is_active=None
-        )
+        command = UpdateAccountCommand(name="Renamed")
 
         result = service.update_account(uuid.uuid4(), command)
 
@@ -297,10 +296,34 @@ class TestUpdateAccount:
     ):
         updated = make_account(is_active=False)
         account_repo.update_account.return_value = updated
-        command = UpdateAccountCommand(
-            name=None, type=None, color=None, icon=None, is_active=False
-        )
+        command = UpdateAccountCommand(is_active=False)
 
         result = service.update_account(uuid.uuid4(), command)
 
         assert result.is_active is False
+
+
+class TestUpdateAccountClearingFields:
+    """ARCHITECTURE.md §5.5: null explícito vacía; ausente no toca nada."""
+
+    def test_explicit_null_color_reaches_the_repository(
+        self, service: AccountService, account_repo: MagicMock
+    ):
+        account_repo.update_account.return_value = make_account(color=None)
+
+        service.update_account(uuid.uuid4(), UpdateAccountCommand(color=None))
+
+        applied = account_repo.update_account.call_args.args[1]
+        assert applied.color is None
+        assert applied.icon is UNSET
+
+    def test_rejects_explicit_null_on_not_null_columns(self):
+        for field in ("name", "type", "is_active"):
+            with pytest.raises(ValidationError):
+                UpdateAccountRequest.model_validate({field: None})
+
+    def test_allows_a_patch_that_only_sends_color(self):
+        # name no es obligatorio: un PATCH parcial no reenvía lo que no cambia.
+        payload = UpdateAccountRequest.model_validate({"color": "#fff"})
+
+        assert payload.model_fields_set == {"color"}

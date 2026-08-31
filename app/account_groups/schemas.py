@@ -1,11 +1,12 @@
 import uuid
 from datetime import date as date_
 from datetime import datetime
-from typing import cast
+from typing import Self, cast
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.account_groups.models import AccountGroupMemberRoleEnum, InvitationStatusEnum
+from app.shared.schemas import reject_explicit_nulls
 
 
 class CreateGroupRequest(BaseModel):
@@ -23,6 +24,12 @@ class UpdateGroupRequest(BaseModel):
     color: str | None = Field(default=None, min_length=4, max_length=7)
     icon: str | None = Field(default=None, max_length=50)
     is_active: bool | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def check_nulls(self) -> Self:
+        # Solo color e icon admiten vaciarse.
+        reject_explicit_nulls(self, "name", "is_active")
+        return self
 
 
 class ChangeGroupMemberRoleRequest(BaseModel):

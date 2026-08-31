@@ -6,6 +6,7 @@ from fastapi import APIRouter, Query, status
 
 from app.account_groups.dependencies import RequireMembership
 from app.accounts.dependencies import RequireAccountMembership
+from app.shared.commands import UNSET
 from app.shared.dependencies import CurrentUser
 from app.shared.openapi_responses import (
     BAD_REQUEST,
@@ -101,12 +102,15 @@ def update_transaction(
     account: RequireAccountMembership,
 ) -> TransactionRead:
     fields_set = payload.model_fields_set
+    # El else va a UNSET, no a None: si ambas ramas dieran None, un campo
+    # enviado como null sería indistinguible de uno ausente y no habría forma
+    # de vaciarlo (ARCHITECTURE.md §5.5).
     command = UpdateTransactionCommand(
-        amount=payload.amount if "amount" in fields_set else None,
-        type=payload.type if "type" in fields_set else None,
-        category_id=payload.category_id if "category_id" in fields_set else None,
-        date=payload.date if "date" in fields_set else None,
-        notes=payload.notes if "notes" in fields_set else None,
+        amount=payload.amount if payload.amount is not None else UNSET,
+        type=payload.type if payload.type is not None else UNSET,
+        category_id=payload.category_id if "category_id" in fields_set else UNSET,
+        date=payload.date if payload.date is not None else UNSET,
+        notes=payload.notes if "notes" in fields_set else UNSET,
     )
     return service.update_transaction(account_id, transaction_id, command)
 

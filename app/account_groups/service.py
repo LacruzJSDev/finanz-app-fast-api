@@ -36,6 +36,7 @@ from app.account_groups.schemas import (
 from app.accounts.service import AccountService
 from app.payment_plans.schemas import PaymentPlanRead
 from app.payment_plans.service import PaymentPlanService
+from app.shared.commands import UNSET
 from app.shared.exceptions import (
     BadRequestError,
     ConflictError,
@@ -156,7 +157,7 @@ class AccountGroupService:
         self, membership: AccountGroupMember, group: UpdateAccountGroupCommand
     ) -> GroupRead:
         fields = (group.name, group.color, group.icon, group.is_active)
-        if all(field is None for field in fields):
+        if all(field is UNSET for field in fields):
             raise BadRequestError("Debes incluir al menos un campo para actualizar")
 
         account_group = self.account_group_repo.update_group(membership, group)

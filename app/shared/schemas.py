@@ -5,6 +5,21 @@ from pydantic import BaseModel
 T = TypeVar("T")
 
 
+def reject_explicit_nulls(model: BaseModel, *fields: str) -> None:
+    """Rechaza un `null` explícito en campos que la tabla declara NOT NULL.
+
+    En un `PATCH`, `null` significa "vacía este campo" (`ARCHITECTURE.md`
+    §5.5), y eso solo tiene sentido donde la columna lo admite. En el resto no
+    es un valor a aplicar sino uno imposible, así que se corta aquí con un 422
+    en vez de dejar que llegue a la base y salga como un 500.
+
+    Se llama desde un `model_validator(mode="after")` del schema de entrada.
+    """
+    for field in fields:
+        if field in model.model_fields_set and getattr(model, field) is None:
+            raise ValueError(f"{field} no admite null")
+
+
 class CollectionResponse(BaseModel, Generic[T]):
     """Colección sin paginar. La usan todos los endpoints de lista salvo
     transactions.

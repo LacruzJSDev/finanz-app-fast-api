@@ -3,6 +3,7 @@ from datetime import date, datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 import pytest
+from pydantic import ValidationError
 
 from app.account_groups.commands import (
     AccountGroupCommand,
@@ -20,7 +21,7 @@ from app.account_groups.repository import (
     AccountGroupsRepository,
     InvitationRepository,
 )
-from app.account_groups.schemas import PendingFixedExpenseRead
+from app.account_groups.schemas import PendingFixedExpenseRead, UpdateGroupRequest
 from app.account_groups.service import (
     AccountGroupService,
     GroupOverviewService,
@@ -33,6 +34,7 @@ from app.accounts.service import AccountService
 from app.payment_plans.models import FrequencyUnitEnum
 from app.payment_plans.schemas import PaymentPlanRead
 from app.payment_plans.service import PaymentPlanService
+from app.shared.commands import UNSET
 from app.shared.exceptions import (
     BadRequestError,
     ConflictError,
@@ -334,9 +336,7 @@ class TestGetGroups:
 class TestUpdateGroup:
     def test_raises_bad_request_when_no_fields(self, service: AccountGroupService):
         membership = make_member(uuid.uuid4(), uuid.uuid4())
-        command = UpdateAccountGroupCommand(
-            name=None, color=None, icon=None, is_active=None
-        )
+        command = UpdateAccountGroupCommand()
 
         with pytest.raises(BadRequestError):
             service.update_group(membership, command)
@@ -347,9 +347,7 @@ class TestUpdateGroup:
         membership = make_member(uuid.uuid4(), uuid.uuid4())
         updated = make_group(name="Renamed")
         account_group_repo.update_group.return_value = updated
-        command = UpdateAccountGroupCommand(
-            name="Renamed", color=None, icon=None, is_active=None
-        )
+        command = UpdateAccountGroupCommand(name="Renamed")
 
         result = service.update_group(membership, command)
 
@@ -1202,3 +1200,25 @@ class TestGroupOverview:
         assert result.projection is not None
         assert len(result.projection) == 1
         assert result.projection[-1].balance == result.real_balance
+
+
+class TestUpdateGroupClearingFields:
+    """ARCHITECTURE.md §5.5: null explícito vacía; ausente no toca nada."""
+
+    def test_explicit_null_icon_reaches_the_repository(
+        self, service: AccountGroupService, account_group_repo: MagicMock
+    ):
+        membership = make_member(uuid.uuid4(), uuid.uuid4())
+        account_group_repo.update_group.return_value = make_group(icon=None)
+
+        service.update_group(membership, UpdateAccountGroupCommand(icon=None))
+
+        applied = account_group_repo.update_group.call_args.args[1]
+        assert applied.icon is None
+        assert applied.color is UNSET
+        assert applied.name is UNSET
+
+    def test_rejects_explicit_null_on_not_null_columns(self):
+        for field in ("name", "is_active"):
+            with pytest.raises(ValidationError):
+                UpdateGroupRequest.model_validate({field: None})

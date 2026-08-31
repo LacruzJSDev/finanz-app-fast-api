@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from app.accounts.commands import AccountCommand, UpdateAccountCommand
 from app.accounts.repository import AccountRepository
 from app.accounts.schemas import AccountRead, GroupBalanceRead
+from app.shared.commands import UNSET
 from app.shared.exceptions import BadRequestError, ConflictError, NotFoundError
 
 DEFAULT_CURRENCY = "EUR"
@@ -74,7 +75,7 @@ class AccountService:
             account.icon,
             account.is_active,
         )
-        if all(field is None for field in fields):
+        if all(field is UNSET for field in fields):
             raise BadRequestError("Debes incluir al menos un campo para actualizar")
 
         updated_account = self.account_repo.update_account(account_id, account)

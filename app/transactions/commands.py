@@ -2,6 +2,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import date as date_
 
+from app.shared.commands import UNSET, UnsetType
 from app.transactions.models import TransactionTypeEnum
 
 
@@ -55,8 +56,12 @@ class DailySpendCommand:
 
 @dataclass
 class UpdateTransactionCommand:
-    amount: int | None
-    type: TransactionTypeEnum | None
-    category_id: uuid.UUID | None
-    date: date_ | None
-    notes: str | None
+    """Cambios pedidos en un PATCH. UNSET es "no lo mandó"; None es "mándalo a
+    null", y solo lo admiten los campos que la tabla declara nullable
+    (ARCHITECTURE.md §5.5)."""
+
+    amount: int | UnsetType = UNSET
+    type: TransactionTypeEnum | UnsetType = UNSET
+    category_id: uuid.UUID | None | UnsetType = UNSET
+    date: date_ | UnsetType = UNSET
+    notes: str | None | UnsetType = UNSET

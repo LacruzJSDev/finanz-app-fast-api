@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 from app.accounts.repository import AccountRepository
 from app.categories.repository import CategoryRepository
+from app.shared.commands import UNSET
 from app.shared.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.transactions.commands import (
     CreateTransactionCommand,
@@ -124,7 +125,7 @@ class TransactionService:
             command.date,
             command.notes,
         )
-        if all(field is None for field in fields):
+        if all(field is UNSET for field in fields):
             raise BadRequestError("Debes incluir al menos un campo para actualizar")
 
         transaction = self.transaction_repo.get_transaction_by_id(transaction_id)
@@ -136,13 +137,15 @@ class TransactionService:
             raise NotFoundError("La transacción no existe")
 
         if (
-            command.type is not None
+            command.type is not UNSET
             and transaction.type == TransactionTypeEnum.TRANSFER
         ):
             raise ConflictError("No se puede cambiar el tipo de una transferencia")
-        effective_type = command.type or transaction.type
+        effective_type = command.type if command.type is not UNSET else transaction.type
 
-        if command.category_id is not None:
+        # Vaciar la categoría (null explícito) siempre vale y no necesita
+        # validarse; solo se comprueba cuando se asigna una.
+        if command.category_id is not UNSET and command.category_id is not None:
             if effective_type == TransactionTypeEnum.TRANSFER:
                 raise ConflictError("Una transferencia no admite category_id")
             account = self.account_repo.get_account_by_id(transaction.account_id)
@@ -150,10 +153,10 @@ class TransactionService:
                 raise NotFoundError("La transacción no existe")
             self._check_category(command.category_id, account.group_id)
 
-        if command.amount is not None or command.type is not None:
+        if command.amount is not UNSET or command.type is not UNSET:
             magnitude = (
                 command.amount
-                if command.amount is not None
+                if command.amount is not UNSET
                 else abs(transaction.amount)
             )
             if effective_type == TransactionTypeEnum.TRANSFER:

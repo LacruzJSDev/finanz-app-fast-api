@@ -1,6 +1,7 @@
 import uuid
 from dataclasses import dataclass
 
+from app.shared.commands import UNSET
 from app.shared.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.users.commands import UpdateUserCommand
 from app.users.repository import UserRepository
@@ -20,10 +21,10 @@ class UserService:
         return UserRead.model_validate(user)
 
     def update_user(self, user_id: uuid.UUID, command: UpdateUserCommand) -> UserRead:
-        if command.name is None and command.email is None:
+        if command.name is UNSET and command.email is UNSET:
             raise BadRequestError("Debes incluir al menos un campo para actualizar")
 
-        if command.email is not None:
+        if command.email is not UNSET:
             existing_user = self.user_repo.get_user_by_email(command.email)
             if existing_user is not None and existing_user.id != user_id:
                 raise ConflictError("El email ya está en uso")

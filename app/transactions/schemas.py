@@ -5,6 +5,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.shared.schemas import reject_explicit_nulls
 from app.transactions.models import TransactionTypeEnum
 
 
@@ -39,6 +40,8 @@ class UpdateTransactionRequest(BaseModel):
     def check_type_not_transfer(self) -> Self:
         if self.type == TransactionTypeEnum.TRANSFER:
             raise ValueError("No se puede cambiar el tipo a transferencia")
+        # Solo category_id y notes admiten vaciarse.
+        reject_explicit_nulls(self, "amount", "type", "date")
         return self
 
 

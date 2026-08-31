@@ -9,6 +9,7 @@ from sqlalchemy.orm.util import AliasedClass
 
 from app.accounts.models import Account
 from app.categories.models import Category
+from app.shared.commands import UNSET
 from app.transactions.commands import (
     TransactionFilterCommand,
     TransactionRowCommand,
@@ -215,16 +216,20 @@ class TransactionRepository:
     def update_transaction(
         self, transaction_id: uuid.UUID, command: UpdateTransactionCommand
     ) -> Transaction:
-        values: dict[str, int | uuid.UUID | date_ | str | TransactionTypeEnum] = {}
-        if command.amount is not None:
+        # La marca de ausencia es UNSET, no None: un None que llega aquí es un
+        # null explícito del cliente y sí debe escribirse (ARCHITECTURE.md §5.5).
+        values: dict[
+            str, int | uuid.UUID | date_ | str | TransactionTypeEnum | None
+        ] = {}
+        if command.amount is not UNSET:
             values["amount"] = command.amount
-        if command.type is not None:
+        if command.type is not UNSET:
             values["type"] = command.type
-        if command.category_id is not None:
+        if command.category_id is not UNSET:
             values["category_id"] = command.category_id
-        if command.date is not None:
+        if command.date is not UNSET:
             values["date"] = command.date
-        if command.notes is not None:
+        if command.notes is not UNSET:
             values["notes"] = command.notes
 
         return self.db.execute(

@@ -9,6 +9,7 @@ from app.accounts.models import Account, AccountTypeEnum
 from app.accounts.repository import AccountRepository
 from app.categories.models import Category
 from app.categories.repository import CategoryRepository
+from app.shared.commands import UNSET
 from app.shared.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.transactions.commands import (
     CreateTransactionCommand,
@@ -18,7 +19,7 @@ from app.transactions.commands import (
 )
 from app.transactions.models import Transaction, TransactionTypeEnum
 from app.transactions.repository import CategorySummaryRow, TransactionRepository
-from app.transactions.schemas import TransactionFilterQuery
+from app.transactions.schemas import TransactionFilterQuery, UpdateTransactionRequest
 from app.transactions.service import TransactionService
 
 
@@ -373,9 +374,7 @@ class TestGetTransaction:
 
 class TestUpdateTransaction:
     def test_raises_bad_request_when_no_fields(self, service: TransactionService):
-        command = UpdateTransactionCommand(
-            amount=None, type=None, category_id=None, date=None, notes=None
-        )
+        command = UpdateTransactionCommand()
 
         with pytest.raises(BadRequestError):
             service.update_transaction(uuid.uuid4(), uuid.uuid4(), command)
@@ -384,9 +383,7 @@ class TestUpdateTransaction:
         self, service: TransactionService, transaction_repo: MagicMock
     ):
         transaction_repo.get_transaction_by_id.return_value = None
-        command = UpdateTransactionCommand(
-            amount=100, type=None, category_id=None, date=None, notes=None
-        )
+        command = UpdateTransactionCommand(amount=100)
 
         with pytest.raises(NotFoundError):
             service.update_transaction(uuid.uuid4(), uuid.uuid4(), command)
@@ -402,9 +399,7 @@ class TestUpdateTransaction:
         transaction_repo.update_transaction.return_value = make_transaction(
             account_id=account_id, amount=-800
         )
-        command = UpdateTransactionCommand(
-            amount=800, type=None, category_id=None, date=None, notes=None
-        )
+        command = UpdateTransactionCommand(amount=800)
 
         service.update_transaction(account_id, transaction.id, command)
 
@@ -424,9 +419,7 @@ class TestUpdateTransaction:
         )
         transaction_repo.get_transaction_by_id.return_value = transaction
         transaction_repo.update_transaction.return_value = transaction
-        command = UpdateTransactionCommand(
-            amount=450, type=None, category_id=None, date=None, notes=None
-        )
+        command = UpdateTransactionCommand(amount=450)
 
         service.update_transaction(account_id, transaction.id, command)
 
@@ -442,13 +435,7 @@ class TestUpdateTransaction:
         )
         transaction_repo.get_transaction_by_id.return_value = transaction
         transaction_repo.update_transaction.return_value = transaction
-        command = UpdateTransactionCommand(
-            amount=None,
-            type=TransactionTypeEnum.INCOME,
-            category_id=None,
-            date=None,
-            notes=None,
-        )
+        command = UpdateTransactionCommand(type=TransactionTypeEnum.INCOME)
 
         service.update_transaction(account_id, transaction.id, command)
 
@@ -463,13 +450,7 @@ class TestUpdateTransaction:
             account_id=account_id, type=TransactionTypeEnum.TRANSFER
         )
         transaction_repo.get_transaction_by_id.return_value = transaction
-        command = UpdateTransactionCommand(
-            amount=None,
-            type=TransactionTypeEnum.INCOME,
-            category_id=None,
-            date=None,
-            notes=None,
-        )
+        command = UpdateTransactionCommand(type=TransactionTypeEnum.INCOME)
 
         with pytest.raises(ConflictError):
             service.update_transaction(account_id, transaction.id, command)
@@ -484,13 +465,7 @@ class TestUpdateTransaction:
             account_id=account_id, type=TransactionTypeEnum.TRANSFER
         )
         transaction_repo.get_transaction_by_id.return_value = transaction
-        command = UpdateTransactionCommand(
-            amount=None,
-            type=None,
-            category_id=uuid.uuid4(),
-            date=None,
-            notes=None,
-        )
+        command = UpdateTransactionCommand(category_id=uuid.uuid4())
 
         with pytest.raises(ConflictError):
             service.update_transaction(account_id, transaction.id, command)
@@ -513,16 +488,107 @@ class TestUpdateTransaction:
         category_repo.get_category_by_id.return_value = make_category(
             group_id=uuid.uuid4()
         )
-        command = UpdateTransactionCommand(
-            amount=None,
-            type=None,
-            category_id=uuid.uuid4(),
-            date=None,
-            notes=None,
-        )
+        command = UpdateTransactionCommand(category_id=uuid.uuid4())
 
         with pytest.raises(ConflictError):
             service.update_transaction(account_id, transaction.id, command)
+
+
+class TestUpdateTransactionClearingFields:
+    """ARCHITECTURE.md §5.5: un campo ausente no se toca, pero uno enviado como
+    null sí se aplica cuando la columna lo admite. Antes ambos llegaban como
+    None y era imposible vaciar nada."""
+
+    def test_explicit_null_category_reaches_the_repository(
+        self, service: TransactionService, transaction_repo: MagicMock
+    ):
+        account_id = uuid.uuid4()
+        transaction = make_transaction(account_id=account_id, category_id=uuid.uuid4())
+        transaction_repo.get_transaction_by_id.return_value = transaction
+        transaction_repo.update_transaction.return_value = make_transaction(
+            account_id=account_id, category_id=None
+        )
+        command = UpdateTransactionCommand(category_id=None)
+
+        service.update_transaction(account_id, transaction.id, command)
+
+        applied = transaction_repo.update_transaction.call_args.args[1]
+        assert applied.category_id is None
+
+    def test_explicit_null_notes_reaches_the_repository(
+        self, service: TransactionService, transaction_repo: MagicMock
+    ):
+        account_id = uuid.uuid4()
+        transaction = make_transaction(account_id=account_id, notes="Cena")
+        transaction_repo.get_transaction_by_id.return_value = transaction
+        transaction_repo.update_transaction.return_value = make_transaction(
+            account_id=account_id, notes=None
+        )
+        command = UpdateTransactionCommand(notes=None)
+
+        service.update_transaction(account_id, transaction.id, command)
+
+        applied = transaction_repo.update_transaction.call_args.args[1]
+        assert applied.notes is None
+
+    def test_clearing_the_category_skips_the_group_check(
+        self,
+        service: TransactionService,
+        transaction_repo: MagicMock,
+        category_repo: MagicMock,
+    ):
+        # Vaciar no asigna ninguna categoría, así que no hay grupo que validar.
+        account_id = uuid.uuid4()
+        transaction = make_transaction(account_id=account_id, category_id=uuid.uuid4())
+        transaction_repo.get_transaction_by_id.return_value = transaction
+        transaction_repo.update_transaction.return_value = make_transaction(
+            account_id=account_id, category_id=None
+        )
+
+        service.update_transaction(
+            account_id, transaction.id, UpdateTransactionCommand(category_id=None)
+        )
+
+        category_repo.get_category_by_id.assert_not_called()
+
+    def test_absent_fields_stay_unset(
+        self, service: TransactionService, transaction_repo: MagicMock
+    ):
+        account_id = uuid.uuid4()
+        transaction = make_transaction(
+            account_id=account_id, category_id=uuid.uuid4(), notes="Cena"
+        )
+        transaction_repo.get_transaction_by_id.return_value = transaction
+        transaction_repo.update_transaction.return_value = transaction
+
+        service.update_transaction(
+            account_id, transaction.id, UpdateTransactionCommand(notes="Otra cosa")
+        )
+
+        applied = transaction_repo.update_transaction.call_args.args[1]
+        assert applied.notes == "Otra cosa"
+        # category_id no viajó: el repositorio no debe tocarlo.
+        assert applied.category_id is UNSET
+        assert applied.date is UNSET
+
+
+class TestUpdateTransactionRequestNulls:
+    def test_rejects_explicit_null_on_not_null_columns(self):
+        # amount, type y date no son vaciables: null ahí no es "vacíalo", es un
+        # valor imposible que acabaría en un error de integridad.
+        for field in ("amount", "type", "date"):
+            with pytest.raises(ValidationError):
+                UpdateTransactionRequest.model_validate({field: None})
+
+    def test_accepts_explicit_null_on_nullable_columns(self):
+        payload = UpdateTransactionRequest.model_validate(
+            {"category_id": None, "notes": None}
+        )
+
+        assert payload.category_id is None
+        assert payload.notes is None
+        assert "category_id" in payload.model_fields_set
+        assert "notes" in payload.model_fields_set
 
 
 class TestDeleteTransaction:
