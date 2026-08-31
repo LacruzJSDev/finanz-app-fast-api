@@ -38,6 +38,11 @@ services:
     # --reload reinicia uvicorn sin necesidad de reconstruir la imagen.
     volumes:
       - .:/code
+      # Volumen anónimo: tapa el venv del host dentro del contenedor. Sus
+      # symlinks (venv/bin/python...) apuntan a rutas del host que no
+      # existen aquí, así que con WATCHFILES_FORCE_POLLING el reloader los
+      # veía "borrados" en cada sondeo y no paraba de loguear cambios.
+      - /code/venv
     env_file: .env
     environment:
       ENVIRONMENT: development
