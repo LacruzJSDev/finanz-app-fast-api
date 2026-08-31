@@ -75,6 +75,9 @@ Requiere pertenencia al grupo, cualquier rol. **Router aparte**: el resto de end
   2. Si `is_recurring`, avanza `next_due_date` sumándole `frequency_interval` unidades de `frequency_unit` **a partir de la fecha de vencimiento programada, no de la fecha real de ejecución** — para que un plan mensual del día 1 se mantenga en el día 1 aunque el cron se ejecute con retraso. Si la nueva fecha supera `end_date`, el plan se archiva (`is_active = false`) en vez de avanzar.
   3. Si no es recurrente, el plan se archiva tras generar su única transacción.
   4. Cada plan se procesa en su propia transacción de base de datos: si falla la generación de la `transaction`, no se avanza `next_due_date` ni se archiva el plan — el vencimiento queda pendiente para la siguiente ejecución, en vez de perderse.
+- **Archivar la cuenta o el grupo suspende sus planes.** El proceso diario solo materializa planes cuya cuenta y cuyo grupo estén activos, además del propio `is_active` del plan. Sin esa condición, archivar —que es la forma de decir "esto ya no lo uso"— no detendría nada: el cron seguiría creando transacciones y moviendo el saldo de cuentas que el usuario dio por cerradas.
+  - La suspensión es **reversible y no destructiva**: no toca el `is_active` del plan ni su `next_due_date`. Desarchivar la cuenta o el grupo lo reanuda tal como estaba.
+  - Se comprueba en dos sitios: al seleccionar los planes vencidos y otra vez al procesar cada uno. No es redundancia — cada plan se materializa en su propia sesión, después de la consulta, así que archivar algo a mitad de ejecución tiene que quedar cubierto.
 - **El "ancla de cobro" del grupo se deriva de estos planes, sin columna que lo marque.** Las vistas de previsión (`account_groups.md` §4) se organizan alrededor de cuándo entra el próximo ingreso periódico: de ahí salen los días restantes, el saldo real y el horizonte de la proyección. Ese plan es, por convención, **el plan activo del grupo con `type = 'income'` e `is_recurring = true` que tenga el `next_due_date` más próximo**, desempatando por `amount` descendente (si dos ingresos recurrentes caen el mismo día, la nómina es casi siempre el mayor).
   - Su `next_due_date` es la fecha de cobro y su `amount` lo que entra ese día. No hace falta aritmética de calendario en ninguna parte: el proceso diario ya mantiene `next_due_date` al día, incluido el ajuste de fin de mes.
   - Un grupo sin ningún plan que cumpla la convención **no es un error**: los endpoints que dependen del ancla devuelven `null` en los campos afectados y siguen sirviendo el resto.
@@ -86,6 +89,7 @@ Requiere pertenencia al grupo, cualquier rol. **Router aparte**: el resto de end
 ## 6. Fuera de alcance (v1)
 
 - Recuperar automáticamente vencimientos atrasados si el cron deja de ejecutarse varios días seguidos — cada ejecución procesa como mucho un vencimiento por plan, no encadena varios aunque `next_due_date` siga estando en el pasado tras avanzarlo una vez.
+- **Descartar los vencimientos ocurridos mientras la cuenta o el grupo estaban archivados.** Al suspender sin tocar `next_due_date` (ver §5), un plan mensual archivado tres meses conserva su vencimiento antiguo, y al desarchivar se pone al día a razón de uno por noche, generando transacciones con fecha pasada. Es coherente con el punto anterior —un cron caído se comporta igual— pero conviene saberlo: archivar no es lo mismo que cancelar. Para no arrastrar esos vencimientos, el plan se archiva por su cuenta (`is_active = false`).
 - Endpoint HTTP para forzar manualmente la materialización de planes vencidos (útil para pruebas) — en v1 solo se dispara vía cron/script.
 - Notificar al usuario antes de que un plan se materialice, o pedirle confirmación.
 - Editar `account_id` o `to_account_id` de un plan ya creado, o cambiar `type` hacia/desde `transfer`.
@@ -106,6 +110,8 @@ Requiere pertenencia al grupo, cualquier rol. **Router aparte**: el resto de end
 - El proceso diario, ejecutado sobre un plan mensual, genera la `transaction` y avanza `next_due_date` un mes exacto desde la fecha programada, no desde la fecha de ejecución.
 - El proceso diario, ejecutado sobre un plan recurrente cuyo siguiente vencimiento superaría `end_date`, genera la última `transaction` y archiva el plan en vez de avanzar `next_due_date`.
 - El proceso diario no toca los planes con `is_active = false` ni los que tienen `next_due_date` en el futuro.
+- El proceso diario tampoco toca un plan cuya cuenta esté archivada, ni uno cuyo grupo lo esté, aunque el plan siga activo y vencido.
+- Desarchivar la cuenta o el grupo reanuda sus planes con el mismo `next_due_date` que tenían: la suspensión no altera ningún dato del plan.
 - Un `PATCH` sin ningún campo devuelve `400`, sin aplicar ningún cambio.
 - Un miembro con rol `member` que intenta crear, editar o archivar un plan recibe `403`; consultar planes sí le funciona con cualquier rol.
 - Un usuario sin pertenencia al grupo de la cuenta recibe `403` al operar sobre cualquiera de sus planes; un `payment_plan_id` que no pertenece a `account_id` devuelve `404`.

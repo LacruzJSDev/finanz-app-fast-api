@@ -73,6 +73,7 @@ Requiere rol `owner` o `admin` en el grupo de la cuenta. Actualización parcial 
 - **El saldo agregado ignora las cuentas archivadas.** `is_active = false` significa que la cuenta ya no participa en la vida del grupo; incluir su saldo en el patrimonio daría un número que no se corresponde con nada. Su histórico se conserva, pero no suma.
 - Igual que en `account_groups`, un error de autorización nunca se enmascara como recurso inexistente: no pertenecer al grupo de una cuenta da `403`, nunca `404`, tanto si la cuenta existe como si no (`ARCHITECTURE.md` §5.6).
 - El borrado es lógico solo en el sentido de `is_active`, igual que `account_groups`: no hay columna `deleted_at` en `accounts` (a diferencia de `transactions`). Una cuenta archivada conserva su saldo e historial, y puede reactivarse con el mismo `PATCH`.
+- **Archivar una cuenta suspende sus planes de pago**: el proceso diario deja de materializarlos mientras `is_active` sea `false` (ver `payment_plans.md` §5). Sin eso, archivar no detendría nada y el cron seguiría moviendo el saldo de una cuenta que el usuario dio por cerrada. La suspensión es reversible: reactivar la cuenta reanuda sus planes.
 
 ## 6. Fuera de alcance (v1)
 
