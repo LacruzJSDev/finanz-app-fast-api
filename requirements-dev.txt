@@ -9,3 +9,8 @@ iniconfig==2.3.0
 pluggy==1.6.0
 Pygments==2.20.0
 ruff==0.16.2
+
+# pyproject.toml configura pyright en modo strict, pero hasta ahora no estaba
+# declarado en ninguna parte: solo lo ejecutaba quien tuviera Pylance en el
+# editor. `./venv/bin/pyright` antes de commitear, igual que ruff y pytest.
+pyright==1.1.411

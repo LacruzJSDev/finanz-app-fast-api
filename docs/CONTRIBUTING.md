@@ -151,8 +151,13 @@ Mismos tipos y mismo inglés que en los commits.
 ```bash
 ruff check . --fix
 ruff format .
+pyright
 pytest
 ```
+
+`pyright` no es opcional aunque el CI todavía no lo ejecute: `pyproject.toml` lo
+configura en modo `strict`, así que un cambio puede dejar los tipos rotos con
+ruff y pytest en verde. Se instala con `requirements-dev.txt`.
 
 Cuando falta algo en una migración, es más limpio corregir la migración y
 regenerarla que añadir una segunda migración parche encima — **siempre que no
