@@ -1,6 +1,7 @@
 import secrets
 import uuid
 from dataclasses import dataclass
+from datetime import date as date_
 from datetime import datetime, timedelta, timezone
 
 from app.account_groups.commands import (
@@ -23,18 +24,43 @@ from app.account_groups.repository import (
 )
 from app.account_groups.schemas import (
     GroupMemberRead,
+    GroupOverviewRead,
     GroupRead,
+    InvitationDetailRead,
     InvitationRead,
     InvitedByRead,
+    PaydayRead,
+    PendingFixedExpenseRead,
+    ProjectionPointRead,
 )
+from app.accounts.service import AccountService
+from app.payment_plans.schemas import PaymentPlanRead
+from app.payment_plans.service import PaymentPlanService
+from app.shared.commands import UNSET
 from app.shared.exceptions import (
     BadRequestError,
     ConflictError,
     ForbiddenError,
     NotFoundError,
 )
+from app.transactions.commands import DailySpendCommand
+from app.transactions.models import TransactionTypeEnum
+from app.transactions.service import TransactionService
 from app.users.models import User
 from app.users.repository import UserRepository
+
+
+def is_invitation_expired(invitation: Invitation, now: datetime) -> bool:
+    """Única definición de la caducidad perezosa (account_groups.md §5): la
+    aplican tanto el GET por código como el listado por grupo, y si viviera
+    duplicada acabarían divergiendo.
+
+    Solo alcanza a las `pending`: una `accepted` caducada sigue siendo el
+    registro de que alguien entró al grupo.
+    """
+    if invitation.status != InvitationStatusEnum.PENDING:
+        return False
+    return invitation.expires_at < now or invitation.invited_by is None
 
 
 @dataclass
@@ -89,6 +115,15 @@ class AccountGroupService:
         )
         return invitation_read
 
+    def _to_invitation_detail_read(
+        self, invitation: Invitation, user: User | None, group: AccountGroup
+    ) -> InvitationDetailRead:
+        invitation_read = self._to_invitation_read(invitation, user)
+        return InvitationDetailRead(
+            **invitation_read.model_dump(),
+            group=self._to_group_read(group),
+        )
+
     def create_group(self, user_id: uuid.UUID, group: AccountGroupCommand) -> GroupRead:
         account_group = self.account_group_repo.create_account_group(group)
         account_group_member_command = AccountGroupMemberCommand(
@@ -122,7 +157,7 @@ class AccountGroupService:
         self, membership: AccountGroupMember, group: UpdateAccountGroupCommand
     ) -> GroupRead:
         fields = (group.name, group.color, group.icon, group.is_active)
-        if all(field is None for field in fields):
+        if all(field is UNSET for field in fields):
             raise BadRequestError("Debes incluir al menos un campo para actualizar")
 
         account_group = self.account_group_repo.update_group(membership, group)
@@ -218,20 +253,68 @@ class AccountGroupService:
         invitation_read = self._to_invitation_read(invitation, invited_by)
         return invitation_read
 
-    def get_invitation(self, code: str) -> InvitationRead:
+    def get_invitation(self, code: str) -> InvitationDetailRead:
         invitation = self.invitation_repo.get_invitation_by_code(code)
         if invitation is None:
             raise NotFoundError("Invitación no encontrada")
 
         now = datetime.now(timezone.utc)
-        if invitation.expires_at < now or invitation.invited_by is None:
-            expired_invitation = self.invitation_repo.expire_invitation_by_id(
-                invitation.id
-            )
-            return self._to_invitation_read(expired_invitation, None)
+        if is_invitation_expired(invitation, now):
+            invitation = self.invitation_repo.expire_invitation_by_id(invitation.id)
 
-        invited_by = self.user_repo.get_user_by_id(invitation.invited_by)
-        return self._to_invitation_read(invitation, invited_by)
+        # account_groups.md §4: invited_by solo va a null cuando el invitador
+        # ha borrado su cuenta, no por el hecho de haber caducado — "esta
+        # invitación de Juan ha caducado" le dice algo a quien la recibe.
+        invited_by = (
+            self.user_repo.get_user_by_id(invitation.invited_by)
+            if invitation.invited_by is not None
+            else None
+        )
+
+        group = self.account_group_repo.get_group_by_id(invitation.group_id)
+        if group is None:
+            raise NotFoundError("Invitación no encontrada")
+        return self._to_invitation_detail_read(invitation, invited_by, group)
+
+    def get_group_invitations(self, group_id: uuid.UUID) -> list[InvitationRead]:
+        invitations = self.invitation_repo.get_invitations_by_group_id(group_id)
+        now = datetime.now(timezone.utc)
+        current = [
+            (
+                self.invitation_repo.expire_invitation_by_id(invitation.id)
+                if is_invitation_expired(invitation, now)
+                else invitation
+            )
+            for invitation in invitations
+        ]
+
+        inviter_ids = {
+            invitation.invited_by
+            for invitation in current
+            if invitation.invited_by is not None
+        }
+        users = self.user_repo.get_users_by_ids(inviter_ids)
+        users_by_id = {user.id: user for user in users}
+
+        invitations_read: list[InvitationRead] = []
+        for invitation in current:
+            inviter = (
+                users_by_id.get(invitation.invited_by)
+                if invitation.invited_by is not None
+                else None
+            )
+            invitations_read.append(self._to_invitation_read(invitation, inviter))
+
+        return invitations_read
+
+    def revoke_invitation(self, group_id: uuid.UUID, invitation_id: uuid.UUID) -> None:
+        invitation = self.invitation_repo.get_invitation_by_id(invitation_id)
+        if invitation is None or invitation.group_id != group_id:
+            raise NotFoundError("Invitación no encontrada")
+        if invitation.status == InvitationStatusEnum.ACCEPTED:
+            raise ConflictError("Una invitación ya aceptada no puede revocarse")
+
+        self.invitation_repo.delete_invitation_by_id(invitation_id)
 
     def accept_invitation(
         self, group_id: uuid.UUID, user_id: uuid.UUID, invitation_id: uuid.UUID
@@ -246,13 +329,13 @@ class AccountGroupService:
         now = datetime.now(timezone.utc)
         if invitation is None or invitation.group_id != group_id:
             raise NotFoundError("Invitación no encontrada")
+        if is_invitation_expired(invitation, now):
+            self.invitation_repo.expire_invitation_by_id(invitation_id)
+            raise ConflictError("La invitación ha expirado")
         if (
-            invitation.expires_at < now
+            invitation.status == InvitationStatusEnum.EXPIRED
             or invitation.invited_by is None
-            or invitation.status == InvitationStatusEnum.EXPIRED
         ):
-            if invitation.status == InvitationStatusEnum.PENDING:
-                self.invitation_repo.expire_invitation_by_id(invitation_id)
             raise ConflictError("La invitación ha expirado")
         if invitation.status == InvitationStatusEnum.ACCEPTED:
             raise ConflictError("La invitación ya ha sido aceptada")
@@ -271,3 +354,111 @@ class AccountGroupService:
             account_group_member_command
         )
         return invitation_read
+
+
+def pending_fixed_expenses(
+    upcoming: list[PaymentPlanRead], payday_plan_id: uuid.UUID
+) -> list[PendingFixedExpenseRead]:
+    return [
+        PendingFixedExpenseRead(
+            payment_plan_id=plan.id,
+            description=plan.description,
+            amount=plan.amount,
+            due_date=plan.next_due_date,
+        )
+        for plan in upcoming
+        if plan.id != payday_plan_id and plan.type == TransactionTypeEnum.EXPENSE
+    ]
+
+
+def daily_safe_spend(real_balance: int, days_remaining: int) -> int:
+    return real_balance // max(days_remaining, 1)
+
+
+def build_projection(
+    available: int,
+    expenses: list[PendingFixedExpenseRead],
+    today: date_,
+    payday: date_,
+) -> list[ProjectionPointRead]:
+    steps: dict[date_, int] = {}
+    for expense in expenses:
+        due_date = max(expense.due_date, today)
+        steps[due_date] = steps.get(due_date, 0) + expense.amount
+
+    points: list[ProjectionPointRead] = []
+    balance = available
+    day = today
+    # Un ancla atrasada (el cron aún no ha corrido) dejaría la curva vacía, y
+    # con ella se perdería la igualdad con real_balance del último punto.
+    last_day = max(payday, today)
+    while day <= last_day:
+        balance -= steps.get(day, 0)
+        points.append(ProjectionPointRead(date=day, balance=balance))
+        day += timedelta(days=1)
+    return points
+
+
+@dataclass
+class GroupOverviewService:
+    """Composición del resumen de grupo (account_groups.md §4)."""
+
+    account_service: AccountService
+    payment_plan_service: PaymentPlanService
+    transaction_service: TransactionService
+
+    def get_group_overview(self, group_id: uuid.UUID) -> GroupOverviewRead:
+        # Un único today para todos los bloques: es la razón de ser del
+        # endpoint (account_groups.md §4).
+        today = date_.today()
+
+        balance = self.account_service.get_group_balance(group_id)
+        daily_spend = self.transaction_service.get_daily_spend(
+            DailySpendCommand(group_id=group_id, date=today)
+        )
+        payday_plan = self.payment_plan_service.get_payday_plan(group_id)
+
+        if payday_plan is None:
+            return GroupOverviewRead(
+                net_worth=balance.net_worth,
+                available=balance.available,
+                account_count=balance.account_count,
+                spent_today=daily_spend.spent,
+                transaction_count_today=daily_spend.transaction_count,
+                payday=None,
+                pending_fixed_expenses=[],
+                pending_fixed_expenses_total=0,
+                real_balance=balance.available,
+                days_remaining=None,
+                daily_safe_spend=None,
+                projection=None,
+            )
+
+        payday_date = payday_plan.next_due_date
+        # account_groups.md §5: el cron puede no haber corrido aún, o haber
+        # fallado un día, y dejar next_due_date en el pasado. El horizonte no
+        # se cierra nunca antes de hoy — si no, un gasto que vence hoy quedaría
+        # fuera de real_balance y days_remaining saldría negativo.
+        horizon = max(payday_date, today)
+        upcoming = self.payment_plan_service.get_upcoming_payment_plans(
+            group_id, horizon
+        )
+        expenses = pending_fixed_expenses(upcoming, payday_plan.id)
+        expenses_total = sum(expense.amount for expense in expenses)
+        real_balance = balance.available - expenses_total
+        days_remaining = (horizon - today).days
+
+        return GroupOverviewRead(
+            net_worth=balance.net_worth,
+            available=balance.available,
+            account_count=balance.account_count,
+            spent_today=daily_spend.spent,
+            transaction_count_today=daily_spend.transaction_count,
+            payday=PaydayRead(date=payday_date, amount=payday_plan.amount),
+            pending_fixed_expenses=expenses,
+            pending_fixed_expenses_total=expenses_total,
+            real_balance=real_balance,
+            days_remaining=days_remaining,
+            daily_safe_spend=daily_safe_spend(real_balance, days_remaining),
+            projection=build_projection(balance.available, expenses, today, horizon),
+        )

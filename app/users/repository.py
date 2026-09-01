@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from app.shared.commands import UNSET
 from app.users.commands import UpdateUserCommand
 from app.users.models import User
 
@@ -42,10 +43,12 @@ class UserRepository:
         return list(users)
 
     def update_user(self, user_id: uuid.UUID, command: UpdateUserCommand) -> User:
+        # Ninguno de los dos es vaciable (ambas columnas son NOT NULL), pero
+        # la marca de ausencia es UNSET igual que en el resto de dominios.
         values: dict[str, str] = {}
-        if command.name is not None:
+        if command.name is not UNSET:
             values["name"] = command.name
-        if command.email is not None:
+        if command.email is not UNSET:
             values["email"] = command.email
 
         return self.db.execute(

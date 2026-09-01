@@ -1,8 +1,10 @@
 import uuid
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Self
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
+
+from app.shared.schemas import reject_explicit_nulls
 
 
 class UserRead(BaseModel):
@@ -36,3 +38,9 @@ class UpdateUserRequest(BaseModel):
 
     name: str | None = Field(default=None)
     email: NormalizedEmail | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def check_nulls(self) -> Self:
+        # Ninguno es vaciable: ambas columnas son NOT NULL.
+        reject_explicit_nulls(self, "name", "email")
+        return self

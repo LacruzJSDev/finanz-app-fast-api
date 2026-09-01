@@ -1,10 +1,12 @@
 import uuid
+from datetime import date as date_
 from datetime import datetime
-from typing import cast
+from typing import Self, cast
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.account_groups.models import AccountGroupMemberRoleEnum, InvitationStatusEnum
+from app.shared.schemas import reject_explicit_nulls
 
 
 class CreateGroupRequest(BaseModel):
@@ -22,6 +24,12 @@ class UpdateGroupRequest(BaseModel):
     color: str | None = Field(default=None, min_length=4, max_length=7)
     icon: str | None = Field(default=None, max_length=50)
     is_active: bool | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def check_nulls(self) -> Self:
+        # Solo color e icon admiten vaciarse.
+        reject_explicit_nulls(self, "name", "is_active")
+        return self
 
 
 class ChangeGroupMemberRoleRequest(BaseModel):
@@ -87,3 +95,53 @@ class InvitationRead(BaseModel):
     accepted_at: datetime | None
     expires_at: datetime
     created_at: datetime
+
+
+class InvitationDetailRead(InvitationRead):
+    """Invitación consultada por su código. Es la única que embebe el grupo:
+    quien la consulta todavía no pertenece a él y no puede pedirlo aparte
+    (account_groups.md §4)."""
+
+    group: GroupRead
+
+
+class PaydayRead(BaseModel):
+    """Ancla de cobro del grupo: cuándo entra el próximo ingreso recurrente y
+    cuánto (payment_plans.md §5)."""
+
+    date: date_
+    amount: int
+
+
+class PendingFixedExpenseRead(BaseModel):
+    """Gasto fijo que todavía tiene que salir antes del cobro."""
+
+    payment_plan_id: uuid.UUID
+    description: str | None
+    amount: int
+    due_date: date_
+
+
+class ProjectionPointRead(BaseModel):
+    """Un punto de la curva de saldo previsto, en céntimos."""
+
+    date: date_
+    balance: int
+
+
+class GroupOverviewRead(BaseModel):
+    """Resumen del grupo (account_groups.md §4). Los cuatro campos que
+    dependen del ancla de cobro son null cuando el grupo no tiene ninguna."""
+
+    net_worth: int
+    available: int
+    account_count: int
+    spent_today: int
+    transaction_count_today: int
+    payday: PaydayRead | None
+    pending_fixed_expenses: list[PendingFixedExpenseRead]
+    pending_fixed_expenses_total: int
+    real_balance: int
+    days_remaining: int | None
+    daily_safe_spend: int | None
+    projection: list[ProjectionPointRead] | None

@@ -46,7 +46,7 @@ Entre paréntesis, opcional pero recomendable. En este proyecto el ámbito es
 normalmente el dominio o la pieza transversal tocada:
 
 `users`, `auth`, `accounts`, `account-groups`, `categories`, `transactions`,
-`payment-plans`, `db`, `api`, `config`, `docker`, `deps`
+`payment-plans`, `budgets`, `db`, `api`, `config`, `docker`, `deps`
 
 Si un commit toca tantos ámbitos que no sabes cuál poner, probablemente
 deberían ser varios commits.
@@ -151,8 +151,13 @@ Mismos tipos y mismo inglés que en los commits.
 ```bash
 ruff check . --fix
 ruff format .
+pyright
 pytest
 ```
+
+`pyright` no es opcional aunque el CI todavía no lo ejecute: `pyproject.toml` lo
+configura en modo `strict`, así que un cambio puede dejar los tipos rotos con
+ruff y pytest en verde. Se instala con `requirements-dev.txt`.
 
 Cuando falta algo en una migración, es más limpio corregir la migración y
 regenerarla que añadir una segunda migración parche encima — **siempre que no

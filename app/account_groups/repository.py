@@ -18,6 +18,7 @@ from app.account_groups.models import (
     Invitation,
     InvitationStatusEnum,
 )
+from app.shared.commands import UNSET
 
 
 @dataclass
@@ -40,33 +41,37 @@ class AccountGroupsRepository:
                 select(AccountGroup)
                 .join(AccountGroupMember)
                 .where(AccountGroupMember.user_id == user_id)
-                .options(
-                    selectinload(
-                        AccountGroup.members.and_(AccountGroupMember.user_id != user_id)
-                    )
-                )
+                # members viene completo, incluido quien consulta: es el único
+                # sitio de esta respuesta donde viaja un role, así que
+                # excluirse deja al cliente sin saber qué puede hacer en cada
+                # grupo (account_groups.md §4).
+                .options(selectinload(AccountGroup.members))
             )
             .scalars()
             .all()
         )
         return list(account_groups)
 
+    def get_group_by_id(self, group_id: uuid.UUID) -> AccountGroup | None:
+        return self.db.execute(
+            select(AccountGroup).where(AccountGroup.id == group_id)
+        ).scalar_one_or_none()
+
     def update_group(
         self, membership: AccountGroupMember, group: UpdateAccountGroupCommand
     ) -> AccountGroup:
-        # None aquí significa "no lo mandó el cliente" (ver UpdateGroupRequest /
-        # router.py), no "bórralo" — así que solo se incluyen en el UPDATE las
-        # columnas que sí llegaron. Un UPDATE parcial no tiene una forma fija
-        # de antemano, así que el dict no puede evitarse aquí como sí se hace
-        # en create_account_group.
-        values: dict[str, str | bool] = {}
-        if group.name is not None:
+        # La marca de ausencia es UNSET; un None que llega aquí es un null
+        # explícito y sí se escribe (ARCHITECTURE.md §5.5). Un UPDATE parcial
+        # no tiene forma fija de antemano, así que el dict no puede evitarse
+        # aquí como sí se hace en create_account_group.
+        values: dict[str, str | bool | None] = {}
+        if group.name is not UNSET:
             values["name"] = group.name
-        if group.color is not None:
+        if group.color is not UNSET:
             values["color"] = group.color
-        if group.icon is not None:
+        if group.icon is not UNSET:
             values["icon"] = group.icon
-        if group.is_active is not None:
+        if group.is_active is not UNSET:
             values["is_active"] = group.is_active
 
         return self.db.execute(
@@ -165,6 +170,18 @@ class InvitationRepository:
         ).scalar_one_or_none()
         return invitation
 
+    def get_invitations_by_group_id(self, group_id: uuid.UUID) -> list[Invitation]:
+        invitations = (
+            self.db.execute(
+                select(Invitation)
+                .where(Invitation.group_id == group_id)
+                .order_by(Invitation.created_at.desc())
+            )
+            .scalars()
+            .all()
+        )
+        return list(invitations)
+
     def get_invitation_by_code(self, code: str) -> Invitation | None:
         invitation = self.db.execute(
             select(Invitation).where(Invitation.code == code)
@@ -183,6 +200,9 @@ class InvitationRepository:
             .values(status=InvitationStatusEnum.EXPIRED)
             .returning(Invitation)
         ).scalar_one()
+
+    def delete_invitation_by_id(self, invitation_id: uuid.UUID) -> None:
+        self.db.execute(delete(Invitation).where(Invitation.id == invitation_id))
 
     def accept_invitation_by_id(
         self,

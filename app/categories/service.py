@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from app.categories.commands import CategoryCommand, UpdateCategoryCommand
 from app.categories.repository import CategoryRepository
 from app.categories.schemas import CategoryRead
+from app.shared.commands import UNSET
 from app.shared.exceptions import BadRequestError, ConflictError, NotFoundError
 
 
@@ -71,10 +72,12 @@ class CategoryService:
             category.icon,
             category.is_active,
         )
-        if all(field is None for field in fields):
+        if all(field is UNSET for field in fields):
             raise BadRequestError("Debes incluir al menos un campo para actualizar")
 
-        if category.parent_id is not None:
+        # Vaciar parent_id (null explícito) promueve la categoría a raíz y no
+        # necesita validarse; solo se comprueba cuando se asigna un padre.
+        if category.parent_id is not UNSET and category.parent_id is not None:
             current = self.category_repo.get_category_by_id(category_id)
             if current is None:
                 raise NotFoundError("La categoría no existe")

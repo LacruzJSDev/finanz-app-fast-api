@@ -6,6 +6,7 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.payment_plans.models import FrequencyUnitEnum
+from app.shared.schemas import reject_explicit_nulls
 from app.transactions.models import TransactionTypeEnum
 
 
@@ -68,6 +69,12 @@ class UpdatePaymentPlanRequest(BaseModel):
     def check_consistency(self) -> Self:
         if self.type == TransactionTypeEnum.TRANSFER:
             raise ValueError("No se puede cambiar el tipo a transferencia")
+
+        # Solo category_id, description, end_date y los dos frequency_* admiten
+        # vaciarse.
+        reject_explicit_nulls(
+            self, "amount", "type", "next_due_date", "is_recurring", "is_active"
+        )
 
         if self.is_recurring is True:
             if self.frequency_interval is None or self.frequency_unit is None:

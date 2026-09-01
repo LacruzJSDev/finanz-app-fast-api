@@ -57,7 +57,7 @@ class TestUpdateUser:
     def test_raises_bad_request_when_no_fields(
         self, service: UserService, user_repo: MagicMock
     ):
-        command = UpdateUserCommand(name=None, email=None)
+        command = UpdateUserCommand()
 
         with pytest.raises(BadRequestError):
             service.update_user(uuid.uuid4(), command)
@@ -70,7 +70,7 @@ class TestUpdateUser:
         user_id = uuid.uuid4()
         updated = make_user(id=user_id, name="New Name")
         user_repo.update_user.return_value = updated
-        command = UpdateUserCommand(name="New Name", email=None)
+        command = UpdateUserCommand(name="New Name")
 
         result = service.update_user(user_id, command)
 
@@ -85,7 +85,7 @@ class TestUpdateUser:
         user_repo.get_user_by_email.return_value = None
         updated = make_user(id=user_id, email="new@test.com")
         user_repo.update_user.return_value = updated
-        command = UpdateUserCommand(name=None, email="new@test.com")
+        command = UpdateUserCommand(email="new@test.com")
 
         result = service.update_user(user_id, command)
 
@@ -98,7 +98,7 @@ class TestUpdateUser:
         self_user = make_user(id=user_id, email="same@test.com")
         user_repo.get_user_by_email.return_value = self_user
         user_repo.update_user.return_value = self_user
-        command = UpdateUserCommand(name=None, email="same@test.com")
+        command = UpdateUserCommand(email="same@test.com")
 
         result = service.update_user(user_id, command)
 
@@ -111,7 +111,7 @@ class TestUpdateUser:
         user_id = uuid.uuid4()
         other_user = make_user(id=uuid.uuid4(), email="taken@test.com")
         user_repo.get_user_by_email.return_value = other_user
-        command = UpdateUserCommand(name=None, email="taken@test.com")
+        command = UpdateUserCommand(email="taken@test.com")
 
         with pytest.raises(ConflictError):
             service.update_user(user_id, command)

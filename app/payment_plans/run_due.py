@@ -5,8 +5,12 @@ import uuid
 from datetime import date, timedelta
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 import app.db_registry
+from app.account_groups.models import AccountGroup
+from app.account_groups.repository import AccountGroupsRepository
+from app.accounts.models import Account
 from app.accounts.repository import AccountRepository
 from app.categories.repository import CategoryRepository
 from app.database import SessionLocal
@@ -54,7 +58,14 @@ def _process_due_plan(payment_plan_id: uuid.UUID) -> None:
             return
 
         account = account_repo.get_account_by_id(plan.account_id)
-        if account is None:
+        if account is None or not account.is_active:
+            return
+
+        # payment_plans.md §5: archivar la cuenta o el grupo suspende sus
+        # planes. Se revalida aquí y no solo en la selección porque cada plan
+        # se procesa en su propia sesión, después de la consulta.
+        group = AccountGroupsRepository(db).get_group_by_id(account.group_id)
+        if group is None or not group.is_active:
             return
 
         command = CreateTransactionCommand(
@@ -91,20 +102,34 @@ def _process_due_plan(payment_plan_id: uuid.UUID) -> None:
         db.close()
 
 
+def due_plan_ids(db: Session, today: date) -> list[uuid.UUID]:
+    """Planes vencidos que sí deben materializarse hoy.
+
+    El JOIN no es decorativo: sin él, archivar un grupo o una cuenta no
+    detendría sus planes, y el cron seguiría creando transacciones y moviendo
+    saldos dentro de algo que el usuario dio por cerrado (payment_plans.md §5).
+    """
+    return list(
+        db.execute(
+            select(PaymentPlan.id)
+            .join(Account, Account.id == PaymentPlan.account_id)
+            .join(AccountGroup, AccountGroup.id == Account.group_id)
+            .where(
+                PaymentPlan.is_active.is_(True),
+                Account.is_active.is_(True),
+                AccountGroup.is_active.is_(True),
+                PaymentPlan.next_due_date <= today,
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
 def run_due_payment_plans() -> None:
     db = SessionLocal()
     try:
-        today = date.today()
-        due_ids = (
-            db.execute(
-                select(PaymentPlan.id).where(
-                    PaymentPlan.is_active.is_(True),
-                    PaymentPlan.next_due_date <= today,
-                )
-            )
-            .scalars()
-            .all()
-        )
+        due_ids = due_plan_ids(db, date.today())
     finally:
         db.close()
 

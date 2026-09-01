@@ -1,5 +1,6 @@
 import uuid
 from dataclasses import dataclass
+from datetime import date as date_
 
 from app.accounts.repository import AccountRepository
 from app.categories.repository import CategoryRepository
@@ -9,6 +10,7 @@ from app.payment_plans.commands import (
 )
 from app.payment_plans.repository import PaymentPlanRepository
 from app.payment_plans.schemas import PaymentPlanRead
+from app.shared.commands import UNSET
 from app.shared.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.transactions.models import TransactionTypeEnum
 
@@ -56,6 +58,20 @@ class PaymentPlanService:
         )
         return [PaymentPlanRead.model_validate(p) for p in payment_plans]
 
+    def get_upcoming_payment_plans(
+        self, group_id: uuid.UUID, until: date_
+    ) -> list[PaymentPlanRead]:
+        payment_plans = self.payment_plan_repo.get_upcoming_by_group(group_id, until)
+        return [PaymentPlanRead.model_validate(p) for p in payment_plans]
+
+    def get_payday_plan(self, group_id: uuid.UUID) -> PaymentPlanRead | None:
+        # payment_plans.md §5: un grupo sin ingreso recurrente activo no es un
+        # error, el ancla simplemente no existe.
+        payment_plan = self.payment_plan_repo.get_payday_plan(group_id)
+        if payment_plan is None:
+            return None
+        return PaymentPlanRead.model_validate(payment_plan)
+
     def get_payment_plan(
         self, account_id: uuid.UUID, payment_plan_id: uuid.UUID
     ) -> PaymentPlanRead:
@@ -82,7 +98,7 @@ class PaymentPlanService:
             command.frequency_unit,
             command.is_active,
         )
-        if all(field is None for field in fields):
+        if all(field is UNSET for field in fields):
             raise BadRequestError("Debes incluir al menos un campo para actualizar")
 
         payment_plan = self.payment_plan_repo.get_payment_plan_by_id(payment_plan_id)
@@ -90,13 +106,16 @@ class PaymentPlanService:
             raise NotFoundError("El plan no existe")
 
         if (
-            command.type is not None
+            command.type is not UNSET
             and payment_plan.type == TransactionTypeEnum.TRANSFER
         ):
             raise ConflictError("No se puede cambiar el tipo de una transferencia")
-        effective_type = command.type or payment_plan.type
+        effective_type = (
+            command.type if command.type is not UNSET else payment_plan.type
+        )
 
-        if command.category_id is not None:
+        # Vaciar la categoría siempre vale; solo se valida al asignar una.
+        if command.category_id is not UNSET and command.category_id is not None:
             if effective_type == TransactionTypeEnum.TRANSFER:
                 raise ConflictError("Una transferencia no admite category_id")
             account = self.account_repo.get_account_by_id(payment_plan.account_id)
@@ -112,28 +131,28 @@ class PaymentPlanService:
         else:
             effective_is_recurring = (
                 command.is_recurring
-                if command.is_recurring is not None
+                if command.is_recurring is not UNSET
                 else payment_plan.is_recurring
             )
             effective_frequency_interval = (
                 command.frequency_interval
-                if command.frequency_interval is not None
+                if command.frequency_interval is not UNSET
                 else payment_plan.frequency_interval
             )
             effective_frequency_unit = (
                 command.frequency_unit
-                if command.frequency_unit is not None
+                if command.frequency_unit is not UNSET
                 else payment_plan.frequency_unit
             )
             effective_end_date = (
                 command.end_date
-                if command.end_date is not None
+                if command.end_date is not UNSET
                 else payment_plan.end_date
             )
 
         effective_next_due_date = (
             command.next_due_date
-            if command.next_due_date is not None
+            if command.next_due_date is not UNSET
             else payment_plan.next_due_date
         )
 

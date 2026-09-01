@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from app.shared.commands import UNSET
 from app.shared.dependencies import CurrentUser
 from app.shared.openapi_responses import (
     BAD_REQUEST,
@@ -23,9 +24,8 @@ def get_me(service: UserServiceDep, user: CurrentUser) -> UserRead:
 def update_me(
     payload: UpdateUserRequest, service: UserServiceDep, user: CurrentUser
 ) -> UserRead:
-    fields_set = payload.model_fields_set
     command = UpdateUserCommand(
-        name=payload.name if "name" in fields_set else None,
-        email=payload.email if "email" in fields_set else None,
+        name=payload.name if payload.name is not None else UNSET,
+        email=payload.email if payload.email is not None else UNSET,
     )
     return service.update_user(user.id, command)

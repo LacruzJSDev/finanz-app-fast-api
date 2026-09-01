@@ -2,6 +2,7 @@ import uuid
 from dataclasses import dataclass
 
 from app.accounts.models import AccountTypeEnum
+from app.shared.commands import UNSET, UnsetType
 
 
 @dataclass
@@ -17,8 +18,11 @@ class AccountCommand:
 
 @dataclass
 class UpdateAccountCommand:
-    name: str | None
-    type: AccountTypeEnum | None
-    color: str | None
-    icon: str | None
-    is_active: bool | None
+    """UNSET es "no lo mandó"; None es "mándalo a null", y solo lo admiten
+    color e icon (ARCHITECTURE.md §5.5)."""
+
+    name: str | UnsetType = UNSET
+    type: AccountTypeEnum | UnsetType = UNSET
+    color: str | None | UnsetType = UNSET
+    icon: str | None | UnsetType = UNSET
+    is_active: bool | UnsetType = UNSET

@@ -1,7 +1,10 @@
 import uuid
 from datetime import datetime
+from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from app.shared.schemas import reject_explicit_nulls
 
 
 class CreateCategoryRequest(BaseModel):
@@ -22,6 +25,12 @@ class UpdateCategoryRequest(BaseModel):
     color: str | None = Field(default=None, min_length=4, max_length=7)
     icon: str | None = Field(default=None, max_length=50)
     is_active: bool | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def check_nulls(self) -> Self:
+        # Solo parent_id, color e icon admiten vaciarse.
+        reject_explicit_nulls(self, "name", "is_active")
+        return self
 
 
 class CategoryRead(BaseModel):

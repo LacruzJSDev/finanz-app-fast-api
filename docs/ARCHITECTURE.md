@@ -157,7 +157,7 @@ Colección paginada — añade los metadatos sobre la misma estructura:
 }
 ```
 
-La paginación se implementa mediante `limit`/`offset`, apoyada en índices sobre la columna de ordenación relevante. Se aplica donde el volumen esperado lo justifica (ver sección 9.2). En el alcance actual, el único endpoint paginado es el listado de transacciones de una cuenta; el resto de colecciones son de tamaño naturalmente acotado.
+La paginación se implementa mediante `limit`/`offset`, apoyada en índices sobre la columna de ordenación relevante. Se aplica donde el volumen esperado lo justifica (ver sección 9). Los únicos endpoints paginados son los listados de transacciones —el anidado por cuenta y el plano por grupo (ver sección 8.3)—; el resto de colecciones son de tamaño naturalmente acotado.
 
 Ambas formas están implementadas como esquemas genéricos reutilizables en `app/shared/schemas.py`, y se declaran como tipo de retorno del endpoint:
 
@@ -270,6 +270,7 @@ El esquema relacional completo vive versionado mediante migraciones (Alembic) y 
 | `categories` | Clasificación jerárquica de transacciones |
 | `payment_plans` | Movimientos futuros o recurrentes |
 | `transactions` | Registro histórico de movimientos |
+| `budgets` | Presupuesto mensual por categoría, vigente por rango de fechas |
 
 **Divisa:** se ha decidido una única divisa por grupo de cuentas para el alcance actual, con `currency` manteniéndose como campo por cuenta (`accounts.currency`) en lugar de moverse a `account_groups` — se prevé que un grupo pueda admitir divisas distintas más adelante, y mantener el campo a nivel de cuenta evita una migración de esquema cuando eso ocurra. La coherencia (todas las cuentas de un mismo grupo en la misma divisa) se impone a nivel de aplicación y de interfaz, no mediante una restricción de base de datos. La validación concreta se define en `docs/domains/accounts.md` §5: la primera cuenta activa de un grupo fija su divisa, y cualquier cuenta posterior con una `currency` distinta se rechaza con `409`.
 
@@ -305,19 +306,66 @@ El dominio `users` gestiona el perfil (`GET /me`, `PATCH /me`) de forma independ
 
 ### 8.1 Transacciones financieras
 
-El acceso a transacciones se realiza siempre en el contexto de una cuenta específica (`GET /api/v1/accounts/{account_id}/transactions`), nunca agregando todas las cuentas de un grupo en una sola consulta. El saldo agregado de un grupo se obtiene sumando los saldos ya derivados de sus cuentas — operación válida una vez formalizada la restricción de divisa única por grupo (ver sección 6).
+El acceso **al detalle** de una transacción —crearla, leerla, editarla, borrarla— ocurre siempre en el contexto de una cuenta específica (`/api/v1/accounts/{account_id}/transactions/{transaction_id}`). Una transacción pertenece a una cuenta y solo a una, incluidas las dos patas de una transferencia.
+
+**Consultar y agregar, en cambio, ocurre en el ámbito del grupo** (ver sección 8.3). La redacción anterior de esta sección prohibía agregar las cuentas de un grupo en una sola consulta; esa decisión se revisó al implementar las vistas de estadísticas — el razonamiento completo, incluidas las alternativas descartadas, está en [ADR-0001](decisions/0001-agregados-por-grupo.md).
+
+El saldo agregado de un grupo es la suma de los saldos ya derivados de sus cuentas — operación válida gracias a la restricción de divisa única por grupo (ver sección 6).
 
 ### 8.2 Borrado
 
 El borrado físico es la convención por defecto. El borrado lógico (columna `deleted_at`) es una excepción justificada por dominio, no un patrón transversal — actualmente aplica solo a `transactions`, por razón de integridad del histórico contable. Su comportamiento exacto (incluida la corrección del saldo derivado) se define en el SPEC del dominio `transactions`.
 
+### 8.3 Consultas: ámbito, filtros y agregados
+
+Esta sección fija la política común de todo endpoint que consulta o agrega. Nace con `transactions`, pero aplica a cualquier dominio que en el futuro necesite lo mismo.
+
+#### Ámbito
+
+**El ámbito de toda consulta es el grupo, expresado como `group_id` en query param.** No es un filtro más: es lo que delimita a qué datos se tiene acceso, y es lo que resuelve la autorización (`RequireMembership`). Nunca se acepta una consulta sin ámbito.
+
+**Restringir a una cuenta es un filtro, no un ámbito distinto.** `account_id` viaja como un query param más, al mismo nivel que `category_id` o `type`. Esto es deliberado: la interfaz muestra estadísticas tanto de una cuenta como de todo el grupo, y con este diseño ambas vistas son el mismo endpoint con un parámetro de diferencia, en vez de dos familias de endpoints que hay que mantener en paralelo.
+
+Como consecuencia, autorizar por grupo y filtrar por cuenta obliga a una validación explícita: **la cuenta pedida debe pertenecer al grupo autorizado**. Sin ella, un miembro legítimo de un grupo podría leer movimientos de otro pasando un `account_id` ajeno. Es una comprobación de aplicación, en `service.py`, y devuelve `409` — no hay invariante de base de datos que la cubra.
+
+Los endpoints de consulta viven en un router plano propio del dominio (`/api/v1/transactions`), separado del router anidado que sirve el CRUD (`/api/v1/accounts/{account_id}/transactions`). Ver [ADR-0002](decisions/0002-router-plano-de-consulta.md).
+
+#### Filtros
+
+**El mismo conjunto de filtros lo comparten el listado y sus agregados.** Un resumen describe exactamente las mismas filas que devolvería el listado con esos mismos parámetros; si divergieran, el usuario vería un total que no cuadra con lo que tiene delante. En la práctica esto significa un único constructor de condiciones reutilizado por ambas consultas, no dos listas de `where` mantenidas a mano.
+
+Reglas transversales:
+
+- Todo filtro es **opcional**; ausente significa "no restringe". El único parámetro obligatorio es el ámbito.
+- Un filtro sobre una **categoría raíz incluye sus subcategorías**, y uno sobre una subcategoría devuelve solo la suya. La jerarquía es de exactamente dos niveles (impuesta por `trg_check_category_depth`), así que nunca hace falta una CTE recursiva. La condición es `COALESCE(parent_id, id) = :cat OR id = :cat`: el `COALESCE` por sí solo agrupa bien pero **filtra mal**, porque para una subcategoría devuelve el id del padre, no el suyo.
+- La **búsqueda de texto** es `ILIKE '%término%'`, sin índice. A los volúmenes de la sección 9 es instantánea; si dejara de serlo, la salida es `pg_trgm` con índice GIN, no rediseñar el contrato.
+- Los filtros **no cambian las reglas de visibilidad**: una transacción borrada lógicamente sigue sin aparecer, se filtre por lo que se filtre.
+
+#### Agregados
+
+- Todo agregado sobre transacciones excluye `deleted_at IS NOT NULL`.
+- Cuando un agregado **reparte entre ingreso y gasto**, excluye además `type = 'transfer'`: un movimiento interno no es ninguna de las dos cosas. Sumaría cero al total, pero ensuciaría el desglose con una fila por cada cuenta implicada.
+- `transactions` no tiene columna `group_id`. Todo agregado llega al grupo con `JOIN accounts ON accounts.id = transactions.account_id`.
+- Un agregado vive en **el dominio dueño del dato**, no en un dominio transversal tipo `dashboard`: el saldo agregado en `accounts`, el desglose por categoría en `transactions`, los vencimientos en `payment_plans`.
+- `GET /account-groups/{group_id}/overview` es la excepción de composición: reúne agregados de varios dominios en una respuesta para que una pantalla entera se calcule contra el mismo instante. Reutiliza los services de esos dominios, no reimplementa sus consultas.
+
+#### Detalles de SQL agregado
+
+Tres cosas que no tienen precedente en el resto del proyecto y son fuente de errores silenciosos:
+
+1. **`func.sum` sobre una columna `BIGINT` devuelve `NUMERIC`**, y psycopg lo entrega como `Decimal`, no como `int`. El repositorio castea explícitamente antes de devolver; si no, el tipo declarado miente y pyright no lo detecta.
+2. **`SUM` de cero filas es `NULL`, no `0`.** Siempre `func.coalesce(func.sum(...), 0)`.
+3. **`func.sum(x).filter(cond)`** renderiza `SUM(x) FILTER (WHERE cond)`, y permite obtener varias sumas distintas en un solo escaneo de la tabla en vez de encadenar consultas.
+
+Sobre índices: no se añade ninguno de forma preventiva. La sección 9 fija un supuesto de volumen bajo, y los índices existentes cubren los filtros que mandan. Cualquier índice nuevo se justifica midiendo, en su propio commit.
+
 ---
 
 ## 9. Supuestos no funcionales
 
-- **Volumen de uso**: uso personal o de grupo reducido, no tráfico concurrente de escala SaaS. Justifica la elección de paginación por desplazamiento sobre paginación por cursor, y de una única instancia de base de datos sin réplicas de lectura.
-- **Disponibilidad**: sin objetivo de alta disponibilidad definido para el alcance actual.
-- **Observabilidad**: fuera de alcance para el MVP; no se define aún estrategia de logging estructurado ni trazabilidad de peticiones.
+- **Volumen de uso**: uso personal o de grupo reducido, no tráfico concurrente de escala SaaS. Justifica la elección de paginación por desplazamiento sobre paginación por cursor, de una única instancia de base de datos sin réplicas de lectura, y de calcular los agregados de la sección 8.3 en caliente en vez de precalcularlos.
+- **Disponibilidad**: sin objetivo de alta disponibilidad definido para el alcance actual. Es lo que justifica que el proceso diario de `payment_plans` sea un cron del contenedor y no un planificador embebido en el proceso de FastAPI.
+- **Observabilidad**: los logs se emiten a `stdout` en JSON cuando `ENVIRONMENT=production` y en texto coloreado en desarrollo (`app/logging_config.py`). En producción los recoge Grafana Alloy y los envía a Loki sin parseo, de ahí que el formato sea JSON: permite filtrar por campo en vez de buscar texto suelto. No hay trazabilidad distribuida ni correlación de peticiones.
 
 ---
 
@@ -331,9 +379,9 @@ Pruebas automatizadas mediante un framework de testing con soporte de cliente HT
 
 - Internacionalización de mensajes de error.
 - Rate limiting.
-- Observabilidad y logging estructurado.
-- Estrategia de despliegue y CI/CD.
+- Trazabilidad distribuida y correlación de peticiones (el logging estructurado sí está, ver sección 9).
 - Alta disponibilidad y réplicas de base de datos.
+- Métricas y alertas: se recogen logs, pero no hay métricas de aplicación ni umbrales definidos.
 
 ---
 
@@ -348,12 +396,14 @@ Las reglas de negocio específicas de cada dominio (endpoints concretos, casos d
 - `docs/domains/categories.md`
 - `docs/domains/payment_plans.md`
 - `docs/domains/transactions.md`
+- `docs/domains/budgets.md`
 
 Cada uno se redacta inmediatamente antes de comenzar la implementación del dominio correspondiente, no de forma anticipada para todos a la vez.
 
 Además:
 
 - `docs/schema-reference.sql` — diseño de referencia del esquema relacional completo (documentación, no ejecutable).
+- `docs/decisions/` — registros de decisión (ADR). Este documento refleja el **estado vigente**: se reescribe cuando una decisión cambia, así que no conserva el razonamiento de lo descartado. Los ADR guardan esa historia, uno por decisión que invierte algo ya documentado, que no es evidente a partir del código, o que asume un riesgo conocido a cambio de simplicidad.
 
 ---
 

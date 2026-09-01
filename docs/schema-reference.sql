@@ -21,13 +21,14 @@
 --   [x] users
 --   [x] auth_providers
 --   [x] sessions
---   [ ] account_groups
---   [ ] account_group_members
---   [ ] invitations
---   [ ] accounts
---   [ ] categories
---   [ ] payment_plans
---   [ ] transactions
+--   [x] account_groups
+--   [x] account_group_members
+--   [x] invitations
+--   [x] accounts
+--   [x] categories
+--   [x] payment_plans
+--   [x] transactions
+--   [x] budgets
 --
 -- =============================================================
 -- Aplicación de finanzas personales multiusuario. El dominio se
@@ -695,3 +696,79 @@ CREATE TRIGGER trg_check_transaction_category_group
     BEFORE INSERT OR UPDATE ON transactions
     FOR EACH ROW
     EXECUTE FUNCTION check_transaction_category_group();
+
+
+-- =============================================================
+-- BUDGETS
+-- Presupuesto mensual por categoría, modelado como "plantilla
+-- vigente": NO hay una fila por mes. Hay una fila por periodo de
+-- vigencia, con valid_to NULL en la actual. Cambiar el importe
+-- cierra la fila anterior y abre otra — el histórico son los
+-- rangos, no filas repetidas. Un presupuesto estable durante dos
+-- años es una fila, no veinticuatro.
+--
+-- El intervalo es SEMIABIERTO [valid_from, valid_to): el día que
+-- cierra una fila es exactamente el mismo que abre la siguiente,
+-- así no hay ni solape ni un hueco de un día entre periodos
+-- consecutivos.
+--
+-- Sin columna group_id a propósito: se llega al grupo por
+-- categories.group_id, la misma decisión que toma transactions al
+-- llegar por accounts. Una columna denormalizada aquí exigiría un
+-- trigger solo para mantenerla coherente con la categoría.
+--
+-- Se presupuesta por categoría, no por cuenta: un presupuesto de
+-- "Comida" cubre lo gastado en comida se pague como se pague.
+-- =============================================================
+
+-- btree_gist es la PRIMERA extensión que necesita el proyecto
+-- (gen_random_uuid() es nativo desde PostgreSQL 13). Hace falta
+-- para poder combinar en un mismo EXCLUDE una columna escalar
+-- (category_id, con =) y un rango (con &&). CREATE EXTENSION
+-- exige rol privilegiado: verificar que se concede en el Postgres
+-- compartido del VPS ANTES de escribir la migración.
+CREATE EXTENSION IF NOT EXISTS btree_gist;
+
+CREATE TABLE budgets (
+    id          UUID   PRIMARY KEY DEFAULT gen_random_uuid(),
+    category_id UUID   NOT NULL REFERENCES categories (id) ON DELETE CASCADE,
+    amount      BIGINT NOT NULL CHECK (amount > 0),
+    valid_from  DATE   NOT NULL,
+    valid_to    DATE,
+    created_by  UUID   REFERENCES users (id) ON DELETE SET NULL,
+    updated_by  UUID   REFERENCES users (id) ON DELETE SET NULL,
+    created_at  TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+
+    -- Un periodo de longitud cero no representa nada, y además
+    -- rompería la convención de intervalo semiabierto.
+    CONSTRAINT chk_budget_period CHECK (valid_to IS NULL OR valid_to > valid_from),
+
+    -- Invariante que ninguna FK ni ningún UNIQUE pueden expresar:
+    -- dos periodos de la misma categoría no pueden solaparse.
+    --
+    -- Un índice único parcial sobre (category_id) WHERE valid_to
+    -- IS NULL —la técnica de uq_auth_providers_local_per_user—
+    -- garantizaría una sola fila vigente, pero no impediría dos
+    -- filas CERRADAS que cubran ambas el mismo mes, y sobre todo
+    -- no cerraría la carrera entre dos peticiones concurrentes
+    -- que leen la misma fila vigente y ambas insertan. El EXCLUDE
+    -- cubre los tres casos y subsume al índice parcial: un rango
+    -- abierto [from, ∞) solapa con cualquier rango posterior.
+    --
+    -- Una violación lanza SQLSTATE 23P01, que sin traducir saldría
+    -- como 500: se mapea a 409 en shared/error_handlers.py.
+    CONSTRAINT excl_budget_overlap EXCLUDE USING gist (
+        category_id WITH =,
+        daterange(valid_from, valid_to, '[)') WITH &&
+    )
+);
+
+-- El propio EXCLUDE crea un índice gist sobre
+-- (category_id, daterange) que ya sirve las búsquedas por
+-- categoría: no hace falta un btree adicional.
+
+CREATE TRIGGER trg_budgets_set_updated_at
+    BEFORE UPDATE ON budgets
+    FOR EACH ROW
+    EXECUTE FUNCTION set_updated_at();

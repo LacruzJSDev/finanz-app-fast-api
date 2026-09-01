@@ -5,6 +5,7 @@ from fastapi import APIRouter, status
 from app.account_groups.commands import AccountGroupCommand, UpdateAccountGroupCommand
 from app.account_groups.dependencies import (
     AccountGroupServiceDep,
+    GroupOverviewServiceDep,
     RequireMembership,
     RequireOwner,
     RequireOwnerOrAdmin,
@@ -14,10 +15,13 @@ from app.account_groups.schemas import (
     CreateGroupRequest,
     CreateInvitationRequest,
     GroupMemberRead,
+    GroupOverviewRead,
     GroupRead,
+    InvitationDetailRead,
     InvitationRead,
     UpdateGroupRequest,
 )
+from app.shared.commands import UNSET
 from app.shared.dependencies import CurrentUser
 from app.shared.openapi_responses import (
     BAD_REQUEST,
@@ -73,10 +77,10 @@ def update_group(
 
     fields_set = payload.model_fields_set
     update_group_command = UpdateAccountGroupCommand(
-        name=payload.name if "name" in fields_set else None,
-        color=payload.color if "color" in fields_set else None,
-        icon=payload.icon if "icon" in fields_set else None,
-        is_active=payload.is_active if "is_active" in fields_set else None,
+        name=payload.name if payload.name is not None else UNSET,
+        color=payload.color if "color" in fields_set else UNSET,
+        icon=payload.icon if "icon" in fields_set else UNSET,
+        is_active=payload.is_active if payload.is_active is not None else UNSET,
     )
     return service.update_group(membership, update_group_command)
 
@@ -137,12 +141,45 @@ def create_invitation(
 
 
 @router.get(
+    "/{group_id}/invitations",
+    responses=responses(UNAUTHORIZED, FORBIDDEN),
+)
+def get_group_invitations(
+    service: AccountGroupServiceDep,
+    group_id: uuid.UUID,
+    membership: RequireOwnerOrAdmin,
+) -> CollectionResponse[InvitationRead]:
+    """Invitaciones del grupo en cualquier estado, con su código"""
+    result = service.get_group_invitations(group_id)
+    collection_response = CollectionResponse[InvitationRead](items=result)
+    return collection_response
+
+
+@router.delete(
+    "/{group_id}/invitations/{invitation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=responses(UNAUTHORIZED, FORBIDDEN, NOT_FOUND, CONFLICT),
+)
+def revoke_invitation(
+    service: AccountGroupServiceDep,
+    group_id: uuid.UUID,
+    invitation_id: uuid.UUID,
+    membership: RequireOwnerOrAdmin,
+) -> None:
+    """Revoca una invitación no aceptada"""
+    service.revoke_invitation(group_id, invitation_id)
+    return
+
+
+@router.get(
     "/invitations/{code}",
-    responses=responses(UNAUTHORIZED, NOT_FOUND, CONFLICT),
+    # Sin CONFLICT: account_groups.md §4 dice que una invitación aceptada o
+    # caducada no es un error aquí, se devuelve con su status real.
+    responses=responses(UNAUTHORIZED, NOT_FOUND),
 )
 def get_invitation(
     service: AccountGroupServiceDep, code: str, user: CurrentUser
-) -> InvitationRead:
+) -> InvitationDetailRead:
     result = service.get_invitation(code)
     return result
 
@@ -158,4 +195,15 @@ def accept_invitation(
     user: CurrentUser,
 ) -> InvitationRead:
     result = service.accept_invitation(group_id, user.id, invitation_id)
+    return result
+
+
+@router.get("/{group_id}/overview", responses=responses(UNAUTHORIZED, FORBIDDEN))
+def get_group_overview(
+    service: GroupOverviewServiceDep,
+    group_id: uuid.UUID,
+    membership: RequireMembership,
+) -> GroupOverviewRead:
+    """Resumen del grupo: saldo, gasto de hoy y previsión hasta el cobro"""
+    result = service.get_group_overview(group_id)
     return result

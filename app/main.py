@@ -4,11 +4,14 @@ from starlette.middleware.cors import CORSMiddleware
 from app.account_groups.router import router as account_groups_router
 from app.accounts.router import router as accounts_router
 from app.auth.router import router as auth_router
+from app.budgets.router import router as budgets_router
 from app.categories.router import router as categories_router
 from app.config import settings
+from app.payment_plans.router import group_router as payment_plans_group_router
 from app.payment_plans.router import router as payment_plans_router
 from app.shared.error_handlers import register_error_handlers
 from app.shared.openapi_responses import VALIDATION_ERROR
+from app.transactions.router import query_router as transactions_query_router
 from app.transactions.router import router as transactions_router
 from app.users.router import router as users_router
 
@@ -53,6 +56,17 @@ app.include_router(categories_router, prefix="/api/v1", responses=VALIDATION_ERR
 app.include_router(transactions_router, prefix="/api/v1", responses=VALIDATION_ERROR)
 app.include_router(payment_plans_router, prefix="/api/v1", responses=VALIDATION_ERROR)
 app.include_router(users_router, prefix="/api/v1", responses=VALIDATION_ERROR)
+
+# Routers de consulta y agregados (ARCHITECTURE.md §8.3). Van aparte de los de
+# CRUD porque un APIRouter solo admite un prefijo, y estos cuelgan del grupo,
+# no de la cuenta.
+app.include_router(
+    transactions_query_router, prefix="/api/v1", responses=VALIDATION_ERROR
+)
+app.include_router(
+    payment_plans_group_router, prefix="/api/v1", responses=VALIDATION_ERROR
+)
+app.include_router(budgets_router, prefix="/api/v1", responses=VALIDATION_ERROR)
 
 
 @app.get("/health", tags=["health"])

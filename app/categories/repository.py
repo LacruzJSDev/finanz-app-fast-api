@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.categories.commands import CategoryCommand, UpdateCategoryCommand
 from app.categories.models import Category
+from app.shared.commands import UNSET
 
 
 @dataclass
@@ -17,6 +18,8 @@ class CategoryRepository:
     def create_category(
         self, user_id: uuid.UUID, new_category: CategoryCommand
     ) -> Category:
+        # Aquí no interviene UNSET: en una creación, None significa "usa el
+        # default de la columna", así que se omite del constructor.
         values: dict[str, uuid.UUID | str] = {}
         if new_category.parent_id is not None:
             values["parent_id"] = new_category.parent_id
@@ -59,16 +62,18 @@ class CategoryRepository:
     def update_category(
         self, category_id: uuid.UUID, category: UpdateCategoryCommand
     ) -> Category:
+        # UNSET es la marca de ausencia; un None que llega aquí es un null
+        # explícito del cliente y sí se escribe (ARCHITECTURE.md §5.5).
         values: dict[str, uuid.UUID | str | bool | None] = {}
-        if category.name is not None:
+        if category.name is not UNSET:
             values["name"] = category.name
-        if category.parent_id is not None:
+        if category.parent_id is not UNSET:
             values["parent_id"] = category.parent_id
-        if category.color is not None:
+        if category.color is not UNSET:
             values["color"] = category.color
-        if category.icon is not None:
+        if category.icon is not UNSET:
             values["icon"] = category.icon
-        if category.is_active is not None:
+        if category.is_active is not UNSET:
             values["is_active"] = category.is_active
 
         return self.db.execute(

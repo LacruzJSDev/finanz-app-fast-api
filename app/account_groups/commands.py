@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from app.account_groups.models import AccountGroupMemberRoleEnum
+from app.shared.commands import UNSET, UnsetType
 
 
 @dataclass
@@ -14,10 +15,13 @@ class AccountGroupCommand:
 
 @dataclass
 class UpdateAccountGroupCommand:
-    name: str | None
-    color: str | None
-    icon: str | None
-    is_active: bool | None
+    """UNSET es "no lo mandó"; None es "mándalo a null", y esto último
+    solo lo admiten color e icon (ARCHITECTURE.md §5.5)."""
+
+    name: str | UnsetType = UNSET
+    color: str | None | UnsetType = UNSET
+    icon: str | None | UnsetType = UNSET
+    is_active: bool | UnsetType = UNSET
 
 
 @dataclass
