@@ -32,6 +32,22 @@ env:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    # Las pruebas de integración aplican las migraciones a esta base efímera.
+    # Nunca se reutiliza la base de ningún entorno desplegado.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: finanzapp_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d finanzapp_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
@@ -57,12 +73,13 @@ jobs:
       - name: Tipos
         run: npx --yes pyright
 
-      # Los services mockean los repositorios (ver ARCHITECTURE.md §10), así
-      # que no hace falta un servicio de Postgres en el runner. Las variables
-      # son solo para que app.config.Settings no falle al importar.
+      # Las pruebas unitarias siguen usando dobles de repositorio; las de
+      # integración aplican las migraciones y ejecutan contra el service
+      # PostgreSQL definido arriba (ver ARCHITECTURE.md §10).
       - name: Tests
         env:
-          DATABASE_URL: postgresql://test:test@localhost/test
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/finanzapp_test
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/finanzapp_test
           SECRET_KEY: test-secret-key
         run: python -m pytest tests/
 

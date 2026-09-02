@@ -371,7 +371,22 @@ Sobre índices: no se añade ninguno de forma preventiva. La sección 9 fija un 
 
 ## 10. Estrategia de pruebas
 
-Pruebas automatizadas mediante un framework de testing con soporte de cliente HTTP para pruebas de integración de endpoints. La separación `service`/`repository` permite pruebas unitarias de la lógica de negocio, sustituyendo el repositorio por un doble de prueba, sin infraestructura de persistencia real.
+La separación `service`/`repository` permite pruebas unitarias rápidas de la
+lógica de negocio, sustituyendo el repositorio por un doble de prueba, sin
+infraestructura de persistencia real.
+
+Las pruebas marcadas como `integration` ejercitan la aplicación con un
+PostgreSQL real. Antes de la primera prueba aplican `alembic upgrade head` y
+vacían todas las tablas entre casos mediante `TRUNCATE ... CASCADE`. El
+entorno se activa solo al definir `TEST_DATABASE_URL`; esta URL debe apuntar a
+una base cuyo nombre termine en `_test` y coincidir con `DATABASE_URL`. Es una
+barrera deliberada contra borrar datos de desarrollo por error.
+
+El CI crea `finanzapp_test` como servicio efímero de PostgreSQL y ejecuta
+ambas suites. Por ello, una migración nueva debe tener al menos una prueba de
+integración cuando su corrección dependa de PostgreSQL (triggers,
+restricciones, índices, concurrencia o SQL específico), además de las
+pruebas unitarias de la regla de negocio.
 
 ---
 

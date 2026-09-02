@@ -159,6 +159,24 @@ pytest
 configura en modo `strict`, así que un cambio puede dejar los tipos rotos con
 ruff y pytest en verde. Se instala con `requirements-dev.txt`.
 
+### Pruebas de integración locales
+
+Las pruebas bajo `tests/integration/` necesitan PostgreSQL y se distinguen con
+el marcador `integration`. Para ejecutarlas, crea una base aislada cuyo nombre
+termine en `_test` y apunta **las dos** variables a ella:
+
+```bash
+export TEST_DATABASE_URL=postgresql://finanzapp:tu-clave@localhost:5433/finanzapp_test
+export DATABASE_URL="$TEST_DATABASE_URL"
+pytest -m integration
+```
+
+La suite aplica las migraciones y hace `TRUNCATE ... CASCADE` entre casos. No
+acepta una base que no termine en `_test` ni una URL distinta de
+`DATABASE_URL`; esas comprobaciones evitan que una ejecución local borre la
+base de desarrollo. Sin `TEST_DATABASE_URL`, `pytest` sigue ejecutando las
+pruebas unitarias y omite las de integración.
+
 Cuando falta algo en una migración, es más limpio corregir la migración y
 regenerarla que añadir una segunda migración parche encima — **siempre que no
 se haya subido todavía**. Una vez que una migración está en `origin`, ya hay
