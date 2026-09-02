@@ -298,6 +298,8 @@ Resuelto mediante inyección de dependencias encadenadas:
 - **`verify_group_membership`** — para endpoints donde el identificador de grupo forma parte de la ruta.
 - **`verify_account_access`** — para endpoints que operan sobre un recurso por su propio identificador, resolviendo la pertenencia al grupo antes de autorizar.
 
+Las mutaciones de membresías que puedan retirar o degradar un `owner` (`PATCH` y `DELETE` de miembros) vuelven a leer todas las pertenencias con `SELECT ... FOR UPDATE`, ordenadas por identificador, dentro de la transacción de la petición. La comprobación de que queda al menos un `owner` y el cambio se ejecutan así sobre la misma fotografía bloqueada, evitando que dos peticiones concurrentes dejen el grupo sin propietario. Un objetivo que no sea miembro se trata como `404`; la autorización del solicitante no cambia.
+
 ### 7.3 Separación entre identidad y autenticación
 
 El dominio `users` gestiona el perfil (`GET /me`, `PATCH /me`) de forma independiente del dominio `auth`, que gestiona exclusivamente el ciclo de autenticación (`POST /auth/login`, `POST /auth/google`, `POST /auth/refresh`, `POST /auth/logout`).

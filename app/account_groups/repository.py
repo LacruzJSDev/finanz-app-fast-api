@@ -111,17 +111,17 @@ class AccountGroupMemberRepository:
         ).scalar_one_or_none()
 
     def get_group_members_by_group_id(
-        self, group_id: uuid.UUID
+        self, group_id: uuid.UUID, *, for_update: bool = False
     ) -> list[AccountGroupMember]:
-        account_group_members = (
-            self.db.execute(
-                select(AccountGroupMember).where(
-                    AccountGroupMember.group_id == group_id
-                )
-            )
-            .scalars()
-            .all()
+        statement = (
+            select(AccountGroupMember)
+            .where(AccountGroupMember.group_id == group_id)
+            .order_by(AccountGroupMember.id)
         )
+        if for_update:
+            statement = statement.with_for_update()
+
+        account_group_members = self.db.execute(statement).scalars().all()
         return list(account_group_members)
 
     def change_group_member_role(

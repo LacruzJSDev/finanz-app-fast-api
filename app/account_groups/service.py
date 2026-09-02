@@ -180,7 +180,13 @@ class AccountGroupService:
     def change_group_member_role(
         self, group_id: uuid.UUID, user_id: uuid.UUID, role: AccountGroupMemberRoleEnum
     ) -> GroupMemberRead:
-        members = self.get_group_members(group_id)
+        members = self.account_group_member_repo.get_group_members_by_group_id(
+            group_id, for_update=True
+        )
+        member = next((member for member in members if member.user_id == user_id), None)
+        if member is None:
+            raise NotFoundError("Miembro del grupo no encontrado")
+
         members_roles = {member.role for member in members if member.user_id != user_id}
         members_roles.add(role)
         if AccountGroupMemberRoleEnum.OWNER not in members_roles:
@@ -200,8 +206,14 @@ class AccountGroupService:
         expeled_user_id: uuid.UUID,
         request_user_id: uuid.UUID,
     ) -> None:
-        members = self.get_group_members(group_id)
+        members = self.account_group_member_repo.get_group_members_by_group_id(
+            group_id, for_update=True
+        )
         members_by_user_id = {member.user_id: member for member in members}
+
+        target = members_by_user_id.get(expeled_user_id)
+        if target is None:
+            raise NotFoundError("Miembro del grupo no encontrado")
 
         remaining_roles = {
             member.role for member in members if member.user_id != expeled_user_id
@@ -211,8 +223,11 @@ class AccountGroupService:
 
         is_self_removal = request_user_id == expeled_user_id
         if not is_self_removal:
-            requester_role = members_by_user_id[request_user_id].role
-            target_role = members_by_user_id[expeled_user_id].role
+            requester = members_by_user_id.get(request_user_id)
+            if requester is None:
+                raise ForbiddenError("No perteneces a este grupo")
+            requester_role = requester.role
+            target_role = target.role
 
             if requester_role == AccountGroupMemberRoleEnum.MEMBER:
                 raise ForbiddenError("No tienes permiso para expulsar miembros")

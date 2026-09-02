@@ -58,13 +58,13 @@ Requiere rol `owner`.
 
 - **Entrada**: `role`.
 - **Efecto**: cambia el rol del miembro indicado. No hay un endpoint separado de "transferir propiedad": un grupo puede tener más de un `owner` simultáneamente (el esquema no lo impide), así que promover a un segundo miembro a `owner` ya resuelve ese caso.
-- **Errores**: `409` si la operación dejaría al grupo sin ningún `owner` (ver regla de negocio).
+- **Errores**: `404` si `user_id` no es miembro del grupo; `409` si la operación dejaría al grupo sin ningún `owner` (ver regla de negocio).
 
 ### `DELETE /api/v1/account-groups/{group_id}/members/{user_id}`
 
 Requiere ser el propio `user_id` (abandonar el grupo) o rol `owner`/`admin` sobre otro miembro (expulsar). Un `admin` no puede expulsar a un `owner`.
 
-- **Errores**: `409` si `user_id` es el único `owner` del grupo y quedarían otros miembros (ver regla de negocio).
+- **Errores**: `404` si `user_id` no es miembro del grupo; `409` si `user_id` es el único `owner` del grupo y quedarían otros miembros (ver regla de negocio).
 
 ### `POST /api/v1/account-groups/{group_id}/invitations`
 
@@ -139,6 +139,8 @@ Existe por corrección, no por rendimiento: todos sus bloques tienen que calcula
 - **El día del cobro, `days_remaining` vale cero.** Antes de que corra el cron, el ancla todavía apunta a hoy. Dividir por él revienta con `ZeroDivisionError`, y es un fallo garantizado, no hipotético: ocurre una vez al mes, siempre. El divisor se acota a un mínimo de 1.
 - **El horizonte del resumen nunca se cierra antes de hoy.** El ancla puede quedar *atrasada*: entre la medianoche y la ejecución del cron —o si el cron falló un día entero— `next_due_date` apunta al pasado. El horizonte es entonces `max(next_due_date, hoy)`, y eso resuelve dos cosas a la vez: `days_remaining` nunca sale negativo (un "−1 días restantes" no significa nada para quien lee la pantalla), y un gasto que vence hoy no queda fuera de `real_balance` por caer después de un vencimiento ya pasado. La proyección usa el mismo horizonte, así que en ese caso devuelve un único punto en lugar de una lista vacía, y se conserva la igualdad entre su último punto y `real_balance`.
 - **Un grupo nunca se queda sin `owner`.** El último `owner` no puede abandonarlo, ni ser eliminado, ni degradar su propio rol, sin que antes se promueva a otro miembro a `owner`. La regla no admite excepción por ser el único miembro: precisamente ahí es donde más importa.
+  - Las operaciones de cambiar roles y expulsar miembros bloquean con `SELECT ... FOR UPDATE` todas las filas de pertenencia del grupo, en un orden estable, antes de comprobar la regla. Así, dos cambios concurrentes no pueden validar ambos el mismo último `owner` sobre una fotografía obsoleta.
+  - Si el `user_id` objetivo no pertenece al grupo, ambas operaciones devuelven `404`; la pertenencia del solicitante sigue resolviéndose y autorizándose con la dependencia habitual (`403` si no tiene acceso).
   - El motivo es que un grupo sin miembros queda **huérfano y es irrecuperable**. Nadie aparece en él, así que no sale en el listado de nadie; y crear una invitación exige pertenecer al grupo con rol `owner`/`admin`, así que tampoco hay forma de volver a entrar. Sus cuentas, categorías, transacciones y planes de pago seguirían existiendo en la base de datos, inalcanzables para siempre.
   - Quien ya no quiere un grupo lo **archiva** (`is_active = false`, ver §4), que es reversible y mantiene el acceso. Abandonarlo no es la herramienta para eso.
   - Archivar un grupo **suspende además los planes de pago** de todas sus cuentas: el proceso diario deja de materializarlos (ver `payment_plans.md` §5). Sin eso, archivar sería un gesto cosmético y el cron seguiría generando transacciones dentro de un grupo cerrado.
