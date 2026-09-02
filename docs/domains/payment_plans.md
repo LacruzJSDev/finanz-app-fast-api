@@ -65,6 +65,7 @@ Requiere pertenencia al grupo, cualquier rol. **Router aparte**: el resto de end
 
 ## 5. Reglas de negocio
 
+- `created_by` conserva quien creó el plan y `updated_by` quien realizó el último cambio humano, incluido archivarlo o reactivarlo mediante `PATCH`. Son referencias opcionales a `users` para preservar el histórico si se elimina una identidad.
 - **Gestionar planes es gobierno del grupo**, igual que `accounts`/`categories`: crear, editar y archivar requiere `owner`/`admin`. A diferencia de una `transaction` puntual (anotar algo que ya pasó, fácil de corregir si se anota mal), un plan de pago automatiza movimientos futuros repetidos — un error aquí no se limita a una fila, se repite solo cada vez que el plan vence.
 - **`amount` es siempre una magnitud positiva**, sin signo: a diferencia de `transactions`, un plan no es un movimiento real y no afecta a ningún `balance`, así que no necesita la partida doble ni la convención de signo de `transactions.md` §5 — el signo se resuelve cuando el plan se materializa, con la misma lógica que ya usa `POST /transactions`.
 - **Estructura por `type`**, mismo criterio que `transactions.md` §5 (`transfer` exige `to_account_id` y prohíbe `category_id`; `income`/`expense` prohíben `to_account_id`), validado en el propio schema de entrada, no en `service.py`.

@@ -85,6 +85,7 @@ class PaymentPlanService:
         account_id: uuid.UUID,
         payment_plan_id: uuid.UUID,
         command: UpdatePaymentPlanCommand,
+        user_id: uuid.UUID,
     ) -> PaymentPlanRead:
         fields = (
             command.amount,
@@ -169,6 +170,6 @@ class PaymentPlanService:
             raise ConflictError("end_date no puede ser anterior a next_due_date")
 
         updated_payment_plan = self.payment_plan_repo.update_payment_plan(
-            payment_plan_id, command
+            payment_plan_id, command, user_id
         )
         return PaymentPlanRead.model_validate(updated_payment_plan)

@@ -22,6 +22,8 @@ from app.transactions.repository import CategorySummaryRow, TransactionRepositor
 from app.transactions.schemas import TransactionFilterQuery, UpdateTransactionRequest
 from app.transactions.service import TransactionService
 
+ACTOR_ID = uuid.uuid4()
+
 
 def make_account(**overrides: object) -> Account:
     defaults: dict[str, object] = {
@@ -377,7 +379,7 @@ class TestUpdateTransaction:
         command = UpdateTransactionCommand()
 
         with pytest.raises(BadRequestError):
-            service.update_transaction(uuid.uuid4(), uuid.uuid4(), command)
+            service.update_transaction(uuid.uuid4(), uuid.uuid4(), command, ACTOR_ID)
 
     def test_raises_not_found_when_transaction_missing(
         self, service: TransactionService, transaction_repo: MagicMock
@@ -386,7 +388,7 @@ class TestUpdateTransaction:
         command = UpdateTransactionCommand(amount=100)
 
         with pytest.raises(NotFoundError):
-            service.update_transaction(uuid.uuid4(), uuid.uuid4(), command)
+            service.update_transaction(uuid.uuid4(), uuid.uuid4(), command, ACTOR_ID)
 
     def test_editing_amount_preserves_expense_sign(
         self, service: TransactionService, transaction_repo: MagicMock
@@ -401,10 +403,11 @@ class TestUpdateTransaction:
         )
         command = UpdateTransactionCommand(amount=800)
 
-        service.update_transaction(account_id, transaction.id, command)
+        service.update_transaction(account_id, transaction.id, command, ACTOR_ID)
 
         applied_command = transaction_repo.update_transaction.call_args.args[1]
         assert applied_command.amount == -800
+        assert transaction_repo.update_transaction.call_args.args[2] == ACTOR_ID
 
     def test_editing_amount_preserves_transfer_leg_sign(
         self, service: TransactionService, transaction_repo: MagicMock
@@ -421,7 +424,7 @@ class TestUpdateTransaction:
         transaction_repo.update_transaction.return_value = transaction
         command = UpdateTransactionCommand(amount=450)
 
-        service.update_transaction(account_id, transaction.id, command)
+        service.update_transaction(account_id, transaction.id, command, ACTOR_ID)
 
         applied_command = transaction_repo.update_transaction.call_args.args[1]
         assert applied_command.amount == -450
@@ -437,7 +440,7 @@ class TestUpdateTransaction:
         transaction_repo.update_transaction.return_value = transaction
         command = UpdateTransactionCommand(type=TransactionTypeEnum.INCOME)
 
-        service.update_transaction(account_id, transaction.id, command)
+        service.update_transaction(account_id, transaction.id, command, ACTOR_ID)
 
         applied_command = transaction_repo.update_transaction.call_args.args[1]
         assert applied_command.amount == 500
@@ -453,7 +456,7 @@ class TestUpdateTransaction:
         command = UpdateTransactionCommand(type=TransactionTypeEnum.INCOME)
 
         with pytest.raises(ConflictError):
-            service.update_transaction(account_id, transaction.id, command)
+            service.update_transaction(account_id, transaction.id, command, ACTOR_ID)
 
         transaction_repo.update_transaction.assert_not_called()
 
@@ -468,7 +471,7 @@ class TestUpdateTransaction:
         command = UpdateTransactionCommand(category_id=uuid.uuid4())
 
         with pytest.raises(ConflictError):
-            service.update_transaction(account_id, transaction.id, command)
+            service.update_transaction(account_id, transaction.id, command, ACTOR_ID)
 
     def test_raises_conflict_when_new_category_from_another_group(
         self,
@@ -491,7 +494,7 @@ class TestUpdateTransaction:
         command = UpdateTransactionCommand(category_id=uuid.uuid4())
 
         with pytest.raises(ConflictError):
-            service.update_transaction(account_id, transaction.id, command)
+            service.update_transaction(account_id, transaction.id, command, ACTOR_ID)
 
 
 class TestUpdateTransactionClearingFields:
@@ -510,7 +513,7 @@ class TestUpdateTransactionClearingFields:
         )
         command = UpdateTransactionCommand(category_id=None)
 
-        service.update_transaction(account_id, transaction.id, command)
+        service.update_transaction(account_id, transaction.id, command, ACTOR_ID)
 
         applied = transaction_repo.update_transaction.call_args.args[1]
         assert applied.category_id is None
@@ -526,7 +529,7 @@ class TestUpdateTransactionClearingFields:
         )
         command = UpdateTransactionCommand(notes=None)
 
-        service.update_transaction(account_id, transaction.id, command)
+        service.update_transaction(account_id, transaction.id, command, ACTOR_ID)
 
         applied = transaction_repo.update_transaction.call_args.args[1]
         assert applied.notes is None
@@ -546,7 +549,10 @@ class TestUpdateTransactionClearingFields:
         )
 
         service.update_transaction(
-            account_id, transaction.id, UpdateTransactionCommand(category_id=None)
+            account_id,
+            transaction.id,
+            UpdateTransactionCommand(category_id=None),
+            ACTOR_ID,
         )
 
         category_repo.get_category_by_id.assert_not_called()
@@ -562,7 +568,10 @@ class TestUpdateTransactionClearingFields:
         transaction_repo.update_transaction.return_value = transaction
 
         service.update_transaction(
-            account_id, transaction.id, UpdateTransactionCommand(notes="Otra cosa")
+            account_id,
+            transaction.id,
+            UpdateTransactionCommand(notes="Otra cosa"),
+            ACTOR_ID,
         )
 
         applied = transaction_repo.update_transaction.call_args.args[1]
@@ -599,9 +608,11 @@ class TestDeleteTransaction:
         transaction = make_transaction(account_id=account_id)
         transaction_repo.get_transaction_by_id.return_value = transaction
 
-        service.delete_transaction(account_id, transaction.id)
+        service.delete_transaction(account_id, transaction.id, ACTOR_ID)
 
-        transaction_repo.delete_transaction.assert_called_once_with(transaction.id)
+        transaction_repo.delete_transaction.assert_called_once_with(
+            transaction.id, ACTOR_ID
+        )
 
     def test_raises_not_found_when_already_deleted(
         self, service: TransactionService, transaction_repo: MagicMock
@@ -613,7 +624,7 @@ class TestDeleteTransaction:
         transaction_repo.get_transaction_by_id.return_value = transaction
 
         with pytest.raises(NotFoundError):
-            service.delete_transaction(account_id, transaction.id)
+            service.delete_transaction(account_id, transaction.id, ACTOR_ID)
 
         transaction_repo.delete_transaction.assert_not_called()
 
@@ -624,7 +635,7 @@ class TestDeleteTransaction:
         transaction_repo.get_transaction_by_id.return_value = transaction
 
         with pytest.raises(NotFoundError):
-            service.delete_transaction(uuid.uuid4(), transaction.id)
+            service.delete_transaction(uuid.uuid4(), transaction.id, ACTOR_ID)
 
 
 def make_filters(**overrides: object) -> TransactionFilterCommand:

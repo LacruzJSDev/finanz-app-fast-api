@@ -214,7 +214,10 @@ class TransactionRepository:
         ).scalar_one_or_none()
 
     def update_transaction(
-        self, transaction_id: uuid.UUID, command: UpdateTransactionCommand
+        self,
+        transaction_id: uuid.UUID,
+        command: UpdateTransactionCommand,
+        user_id: uuid.UUID,
     ) -> Transaction:
         # La marca de ausencia es UNSET, no None: un None que llega aquí es un
         # null explícito del cliente y sí debe escribirse (ARCHITECTURE.md §5.5).
@@ -231,6 +234,7 @@ class TransactionRepository:
             values["date"] = command.date
         if command.notes is not UNSET:
             values["notes"] = command.notes
+        values["updated_by"] = user_id
 
         return self.db.execute(
             update(Transaction)
@@ -239,9 +243,9 @@ class TransactionRepository:
             .returning(Transaction)
         ).scalar_one()
 
-    def delete_transaction(self, transaction_id: uuid.UUID) -> None:
+    def delete_transaction(self, transaction_id: uuid.UUID, user_id: uuid.UUID) -> None:
         self.db.execute(
             update(Transaction)
             .where(Transaction.id == transaction_id)
-            .values(deleted_at=datetime.now(timezone.utc))
+            .values(deleted_at=datetime.now(timezone.utc), updated_by=user_id)
         )

@@ -94,6 +94,7 @@ def get_account(
 def update_account(
     payload: UpdateAccountRequest,
     service: AccountServiceDep,
+    user: CurrentUser,
     account_id: uuid.UUID,
     account: RequireAccountOwnerOrAdmin,
 ) -> AccountRead:
@@ -106,4 +107,4 @@ def update_account(
         icon=payload.icon if "icon" in fields_set else UNSET,
         is_active=payload.is_active if payload.is_active is not None else UNSET,
     )
-    return service.update_account(account_id, update_account_command)
+    return service.update_account(account_id, update_account_command, user.id)

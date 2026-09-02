@@ -103,7 +103,10 @@ class PaymentPlanRepository:
         ).scalar_one_or_none()
 
     def update_payment_plan(
-        self, payment_plan_id: uuid.UUID, command: UpdatePaymentPlanCommand
+        self,
+        payment_plan_id: uuid.UUID,
+        command: UpdatePaymentPlanCommand,
+        user_id: uuid.UUID,
     ) -> PaymentPlan:
         values: dict[
             str,
@@ -148,6 +151,7 @@ class PaymentPlanRepository:
             values["frequency_unit"] = command.frequency_unit
         if "end_date" not in values and command.end_date is not UNSET:
             values["end_date"] = command.end_date
+        values["updated_by"] = user_id
 
         return self.db.execute(
             update(PaymentPlan)

@@ -21,6 +21,8 @@ from app.shared.commands import UNSET
 from app.shared.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.transactions.models import TransactionTypeEnum
 
+ACTOR_ID = uuid.uuid4()
+
 
 def make_account(**overrides: object) -> Account:
     defaults: dict[str, object] = {
@@ -357,7 +359,7 @@ class TestUpdatePaymentPlan:
         command = make_update_command()
 
         with pytest.raises(BadRequestError):
-            service.update_payment_plan(uuid.uuid4(), uuid.uuid4(), command)
+            service.update_payment_plan(uuid.uuid4(), uuid.uuid4(), command, ACTOR_ID)
 
     def test_raises_not_found_when_plan_missing(
         self, service: PaymentPlanService, payment_plan_repo: MagicMock
@@ -366,7 +368,7 @@ class TestUpdatePaymentPlan:
         command = make_update_command(amount=500)
 
         with pytest.raises(NotFoundError):
-            service.update_payment_plan(uuid.uuid4(), uuid.uuid4(), command)
+            service.update_payment_plan(uuid.uuid4(), uuid.uuid4(), command, ACTOR_ID)
 
     def test_raises_conflict_changing_type_of_existing_transfer(
         self, service: PaymentPlanService, payment_plan_repo: MagicMock
@@ -377,7 +379,7 @@ class TestUpdatePaymentPlan:
         command = make_update_command(type=TransactionTypeEnum.INCOME)
 
         with pytest.raises(ConflictError):
-            service.update_payment_plan(account_id, plan.id, command)
+            service.update_payment_plan(account_id, plan.id, command, ACTOR_ID)
 
         payment_plan_repo.update_payment_plan.assert_not_called()
 
@@ -390,7 +392,7 @@ class TestUpdatePaymentPlan:
         command = make_update_command(category_id=uuid.uuid4())
 
         with pytest.raises(ConflictError):
-            service.update_payment_plan(account_id, plan.id, command)
+            service.update_payment_plan(account_id, plan.id, command, ACTOR_ID)
 
     def test_raises_conflict_when_category_from_another_group(
         self,
@@ -411,7 +413,7 @@ class TestUpdatePaymentPlan:
         command = make_update_command(category_id=uuid.uuid4())
 
         with pytest.raises(ConflictError):
-            service.update_payment_plan(account_id, plan.id, command)
+            service.update_payment_plan(account_id, plan.id, command, ACTOR_ID)
 
     def test_turning_off_recurring_clears_frequency_fields(
         self, service: PaymentPlanService, payment_plan_repo: MagicMock
@@ -429,9 +431,11 @@ class TestUpdatePaymentPlan:
         )
         command = make_update_command(is_recurring=False)
 
-        service.update_payment_plan(account_id, plan.id, command)
+        service.update_payment_plan(account_id, plan.id, command, ACTOR_ID)
 
-        payment_plan_repo.update_payment_plan.assert_called_once_with(plan.id, command)
+        payment_plan_repo.update_payment_plan.assert_called_once_with(
+            plan.id, command, ACTOR_ID
+        )
 
     def test_turning_on_recurring_without_frequency_fields_raises_conflict(
         self, service: PaymentPlanService, payment_plan_repo: MagicMock
@@ -442,7 +446,7 @@ class TestUpdatePaymentPlan:
         command = make_update_command(is_recurring=True)
 
         with pytest.raises(ConflictError):
-            service.update_payment_plan(account_id, plan.id, command)
+            service.update_payment_plan(account_id, plan.id, command, ACTOR_ID)
 
         payment_plan_repo.update_payment_plan.assert_not_called()
 
@@ -464,7 +468,7 @@ class TestUpdatePaymentPlan:
             frequency_unit=FrequencyUnitEnum.WEEK,
         )
 
-        result = service.update_payment_plan(account_id, plan.id, command)
+        result = service.update_payment_plan(account_id, plan.id, command, ACTOR_ID)
 
         assert result.is_recurring is True
         assert result.frequency_interval == 2
@@ -488,7 +492,7 @@ class TestUpdatePaymentPlan:
         )
         command = make_update_command(frequency_interval=3)
 
-        result = service.update_payment_plan(account_id, plan.id, command)
+        result = service.update_payment_plan(account_id, plan.id, command, ACTOR_ID)
 
         assert result.frequency_interval == 3
 
@@ -507,7 +511,7 @@ class TestUpdatePaymentPlan:
         command = make_update_command(end_date=date(2026, 1, 1))
 
         with pytest.raises(ConflictError):
-            service.update_payment_plan(account_id, plan.id, command)
+            service.update_payment_plan(account_id, plan.id, command, ACTOR_ID)
 
     def test_raises_conflict_when_new_next_due_date_after_existing_end_date(
         self, service: PaymentPlanService, payment_plan_repo: MagicMock
@@ -524,7 +528,7 @@ class TestUpdatePaymentPlan:
         command = make_update_command(next_due_date=date(2026, 6, 1))
 
         with pytest.raises(ConflictError):
-            service.update_payment_plan(account_id, plan.id, command)
+            service.update_payment_plan(account_id, plan.id, command, ACTOR_ID)
 
     def test_archiving_is_a_valid_sole_field(
         self, service: PaymentPlanService, payment_plan_repo: MagicMock
@@ -537,7 +541,7 @@ class TestUpdatePaymentPlan:
         )
         command = make_update_command(is_active=False)
 
-        result = service.update_payment_plan(account_id, plan.id, command)
+        result = service.update_payment_plan(account_id, plan.id, command, ACTOR_ID)
 
         assert result.is_active is False
 
@@ -556,7 +560,7 @@ class TestUpdatePaymentPlanClearingFields:
         )
 
         service.update_payment_plan(
-            account_id, plan.id, make_update_command(description=None)
+            account_id, plan.id, make_update_command(description=None), ACTOR_ID
         )
 
         applied = payment_plan_repo.update_payment_plan.call_args.args[1]
@@ -577,7 +581,7 @@ class TestUpdatePaymentPlanClearingFields:
         )
 
         service.update_payment_plan(
-            account_id, plan.id, make_update_command(category_id=None)
+            account_id, plan.id, make_update_command(category_id=None), ACTOR_ID
         )
 
         applied = payment_plan_repo.update_payment_plan.call_args.args[1]
