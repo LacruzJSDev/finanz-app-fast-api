@@ -219,6 +219,7 @@ Esta forma **no** es la que FastAPI produce por defecto — sin intervención de
 | `409` | Conflicto de unicidad o de estado (por ejemplo, email ya registrado) |
 | `422` | Error de validación de esquema de entrada |
 | `500` | Error no controlado |
+| `503` | Dependencia imprescindible no disponible temporalmente |
 
 Un error de autorización nunca se enmascara como `404`.
 
@@ -252,7 +253,7 @@ Frontend y backend viven en orígenes distintos — no es un despliegue de mismo
 
 ### 5.8 Endpoint de estado
 
-`GET /health` expone el estado de disponibilidad del servicio, sin autenticación ni lógica de negocio, para verificación de despliegue.
+`GET /health` expone la **vitalidad** del proceso, sin autenticación ni consulta a dependencias: sirve para saber si la API puede responder. `GET /ready` comprueba además `SELECT 1` contra PostgreSQL y responde `503` con el contrato común si la base no está disponible; es el endpoint adecuado para retirar una instancia del balanceador hasta que esté preparada. Ninguno revela credenciales ni detalles del motor.
 
 ---
 

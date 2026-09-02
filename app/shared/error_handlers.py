@@ -40,6 +40,7 @@ _CODES_BY_STATUS = {
     422: "validation_error",
     500: "internal_error",
     501: "not_implemented",
+    503: "service_unavailable",
 }
 
 

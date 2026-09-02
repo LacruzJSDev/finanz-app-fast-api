@@ -1,4 +1,6 @@
 from fastapi import Depends, FastAPI
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from starlette.middleware.cors import CORSMiddleware
 
 from app.account_groups.router import router as account_groups_router
@@ -7,11 +9,13 @@ from app.auth.router import router as auth_router
 from app.budgets.router import router as budgets_router
 from app.categories.router import router as categories_router
 from app.config import settings
+from app.database import engine
 from app.payment_plans.router import group_router as payment_plans_group_router
 from app.payment_plans.router import router as payment_plans_router
 from app.shared.dependencies import require_trusted_origin
 from app.shared.error_handlers import register_error_handlers
-from app.shared.openapi_responses import VALIDATION_ERROR
+from app.shared.exceptions import ServiceUnavailableError
+from app.shared.openapi_responses import SERVICE_UNAVAILABLE, VALIDATION_ERROR
 from app.transactions.router import query_router as transactions_query_router
 from app.transactions.router import router as transactions_router
 from app.users.router import router as users_router
@@ -126,3 +130,14 @@ def health() -> dict[str, str]:
     si el proceso responde, no si sus dependencias están sanas.
     """
     return {"status": "ok"}
+
+
+@app.get("/ready", tags=["health"], responses=SERVICE_UNAVAILABLE)
+def readiness() -> dict[str, str]:
+    """Comprueba que la dependencia imprescindible (PostgreSQL) responde."""
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except SQLAlchemyError:
+        raise ServiceUnavailableError("Base de datos no disponible") from None
+    return {"status": "ready"}

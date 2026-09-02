@@ -33,7 +33,8 @@ pendientes y arranca la API con recarga automática.
 
 - API: http://localhost:8000
 - Documentación interactiva: http://localhost:8000/docs
-- Health check: http://localhost:8000/health
+- Vitalidad del proceso: http://localhost:8000/health
+- Preparación completa (incluida PostgreSQL): http://localhost:8000/ready
 - Postgres (desde el host): `localhost:5433`
 
 ---
