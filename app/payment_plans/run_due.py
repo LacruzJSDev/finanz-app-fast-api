@@ -5,6 +5,7 @@ import uuid
 from datetime import date, timedelta
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import app.db_registry
@@ -30,7 +31,12 @@ assert app.db_registry
 logger = logging.getLogger(__name__)
 
 
-def _advance_date(current: date, interval: int, unit: FrequencyUnitEnum) -> date:
+def advance_scheduled_date(
+    current: date,
+    interval: int,
+    unit: FrequencyUnitEnum,
+    anchor_day: int | None = None,
+) -> date:
     if unit == FrequencyUnitEnum.DAY:
         return current + timedelta(days=interval)
     if unit == FrequencyUnitEnum.WEEK:
@@ -40,12 +46,23 @@ def _advance_date(current: date, interval: int, unit: FrequencyUnitEnum) -> date
     total_months = current.month - 1 + months_to_add
     year = current.year + total_months // 12
     month = total_months % 12 + 1
-    day = min(current.day, calendar.monthrange(year, month)[1])
+    day = min(anchor_day or current.day, calendar.monthrange(year, month)[1])
     return date(year, month, day)
 
 
-def _process_due_plan(payment_plan_id: uuid.UUID) -> None:
+def payment_plan_occurrence_id(
+    payment_plan_id: uuid.UUID, scheduled_for: date
+) -> uuid.UUID:
+    """ID estable de una ocurrencia, independiente del proceso que la ejecute."""
+    return uuid.uuid5(
+        uuid.NAMESPACE_URL,
+        f"finanzapp:payment-plan:{payment_plan_id}:{scheduled_for.isoformat()}",
+    )
+
+
+def process_due_plan(payment_plan_id: uuid.UUID, today: date | None = None) -> None:
     db = SessionLocal()
+    processing_date = today or date.today()
     try:
         payment_plan_repo = PaymentPlanRepository(db)
         account_repo = AccountRepository(db)
@@ -53,8 +70,13 @@ def _process_due_plan(payment_plan_id: uuid.UUID) -> None:
             TransactionRepository(db), account_repo, CategoryRepository(db)
         )
 
-        plan = payment_plan_repo.get_payment_plan_by_id(payment_plan_id)
-        if plan is None or not plan.is_active:
+        # El lock serializa dos instancias del cron para el mismo plan. La
+        # segunda espera al commit de la primera y debe volver a comprobar
+        # estado y vencimiento: el listado inicial puede haber quedado viejo.
+        plan = payment_plan_repo.get_payment_plan_by_id(
+            payment_plan_id, for_update=True
+        )
+        if plan is None or not plan.is_active or plan.next_due_date > processing_date:
             return
 
         account = account_repo.get_account_by_id(plan.account_id)
@@ -68,6 +90,10 @@ def _process_due_plan(payment_plan_id: uuid.UUID) -> None:
         if group is None or not group.is_active:
             return
 
+        # Determinista: dos crons que intenten materializar el mismo
+        # vencimiento generan el mismo identificador, y el índice único de
+        # transactions actúa como última línea de defensa frente a duplicados.
+        occurrence_id = payment_plan_occurrence_id(plan.id, plan.next_due_date)
         command = CreateTransactionCommand(
             account_id=plan.account_id,
             group_id=account.group_id,
@@ -78,14 +104,18 @@ def _process_due_plan(payment_plan_id: uuid.UUID) -> None:
             date=plan.next_due_date,
             notes=plan.description,
             payment_plan_id=plan.id,
+            payment_plan_occurrence_id=occurrence_id,
         )
         transaction_service.create_transaction(None, command)
 
         if plan.is_recurring:
             assert plan.frequency_interval is not None
             assert plan.frequency_unit is not None
-            next_due_date = _advance_date(
-                plan.next_due_date, plan.frequency_interval, plan.frequency_unit
+            next_due_date = advance_scheduled_date(
+                plan.next_due_date,
+                plan.frequency_interval,
+                plan.frequency_unit,
+                plan.recurrence_anchor_day,
             )
             if plan.end_date is not None and next_due_date > plan.end_date:
                 payment_plan_repo.deactivate_payment_plan(plan.id)
@@ -95,9 +125,25 @@ def _process_due_plan(payment_plan_id: uuid.UUID) -> None:
             payment_plan_repo.deactivate_payment_plan(plan.id)
 
         db.commit()
+    except IntegrityError:
+        db.rollback()
+        logger.warning(
+            "Ocurrencia de plan ya materializada o inválida",
+            extra={
+                "payment_plan_id": str(payment_plan_id),
+                "event": "payment_plan_materialization_duplicate",
+            },
+            exc_info=True,
+        )
     except Exception:
         db.rollback()
-        logger.exception("No se pudo materializar el plan de pago %s", payment_plan_id)
+        logger.exception(
+            "No se pudo materializar el plan de pago",
+            extra={
+                "payment_plan_id": str(payment_plan_id),
+                "event": "payment_plan_materialization_failed",
+            },
+        )
     finally:
         db.close()
 
@@ -135,7 +181,7 @@ def run_due_payment_plans() -> None:
 
     logger.info("Planes de pago vencidos a procesar: %d", len(due_ids))
     for payment_plan_id in due_ids:
-        _process_due_plan(payment_plan_id)
+        process_due_plan(payment_plan_id)
 
 
 if __name__ == "__main__":

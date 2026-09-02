@@ -73,6 +73,7 @@ def make_plan(**overrides: object) -> PaymentPlan:
         "amount": 1000,
         "description": None,
         "next_due_date": date(2026, 1, 1),
+        "recurrence_anchor_day": None,
         "end_date": None,
         "is_recurring": False,
         "is_active": True,
@@ -592,3 +593,36 @@ class TestUpdatePaymentPlanClearingFields:
         for field in ("amount", "type", "next_due_date", "is_recurring", "is_active"):
             with pytest.raises(ValidationError):
                 UpdatePaymentPlanRequest.model_validate({field: None})
+
+
+class TestPaymentPlanCalendarAnchor:
+    def test_changing_next_due_date_resets_the_calendar_anchor(
+        self, service: PaymentPlanService, payment_plan_repo: MagicMock
+    ):
+        account_id = uuid.uuid4()
+        plan = make_plan(
+            account_id=account_id,
+            is_recurring=True,
+            frequency_interval=1,
+            frequency_unit=FrequencyUnitEnum.MONTH,
+            recurrence_anchor_day=31,
+        )
+        payment_plan_repo.get_payment_plan_by_id.return_value = plan
+        payment_plan_repo.update_payment_plan.return_value = make_plan(
+            account_id=account_id,
+            is_recurring=True,
+            frequency_interval=1,
+            frequency_unit=FrequencyUnitEnum.MONTH,
+            next_due_date=date(2026, 9, 22),
+            recurrence_anchor_day=22,
+        )
+
+        service.update_payment_plan(
+            account_id,
+            plan.id,
+            make_update_command(next_due_date=date(2026, 9, 22)),
+            ACTOR_ID,
+        )
+
+        applied = payment_plan_repo.update_payment_plan.call_args.args[1]
+        assert applied.recurrence_anchor_day == 22

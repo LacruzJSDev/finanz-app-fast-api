@@ -369,7 +369,7 @@ Sobre índices: no se añade ninguno de forma preventiva. La sección 9 fija un 
 
 - **Volumen de uso**: uso personal o de grupo reducido, no tráfico concurrente de escala SaaS. Justifica la elección de paginación por desplazamiento sobre paginación por cursor, de una única instancia de base de datos sin réplicas de lectura, y de calcular los agregados de la sección 8.3 en caliente en vez de precalcularlos.
 - **Disponibilidad**: sin objetivo de alta disponibilidad definido para el alcance actual. Es lo que justifica que el proceso diario de `payment_plans` sea un cron del contenedor y no un planificador embebido en el proceso de FastAPI.
-- **Observabilidad**: los logs se emiten a `stdout` en JSON cuando `ENVIRONMENT=production` y en texto coloreado en desarrollo (`app/logging_config.py`). En producción los recoge Grafana Alloy y los envía a Loki sin parseo, de ahí que el formato sea JSON: permite filtrar por campo en vez de buscar texto suelto. No hay trazabilidad distribuida ni correlación de peticiones.
+- **Observabilidad**: los logs se emiten a `stdout` en JSON cuando `ENVIRONMENT=production` y en texto coloreado en desarrollo (`app/logging_config.py`). En producción los recoge Grafana Alloy y los envía a Loki sin parseo, de ahí que el formato sea JSON: permite filtrar por campo en vez de buscar texto suelto. Los fallos de materialización de planes incluyen `event` y `payment_plan_id`, de modo que una regla de alertas puede distinguirlos de un error genérico. No hay trazabilidad distribuida ni correlación de peticiones.
 
 ---
 

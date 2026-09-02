@@ -95,6 +95,7 @@ class TransactionRepository:
             category_id=row.category_id,
             transfer_group_id=row.transfer_group_id,
             payment_plan_id=row.payment_plan_id,
+            payment_plan_occurrence_id=row.payment_plan_occurrence_id,
             amount=row.amount,
             type=row.type,
             date=row.date,

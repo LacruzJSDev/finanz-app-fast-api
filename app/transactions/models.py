@@ -46,6 +46,21 @@ class Transaction(Base):
             name="transfer_no_category",
         ),
         CheckConstraint(
+            "payment_plan_id IS NULL OR payment_plan_occurrence_id IS NOT NULL",
+            name="payment_plan_occurrence_required",
+        ),
+        # Una misma ocurrencia programada solo puede afectar una vez a cada
+        # cuenta. Para una transferencia las dos patas tienen cuentas
+        # distintas, así que ambas caben; una repetición completa colisiona
+        # en la primera fila y se revierte como unidad.
+        Index(
+            "uq_transactions_payment_plan_occurrence_account",
+            "payment_plan_occurrence_id",
+            "account_id",
+            unique=True,
+            postgresql_where=text("payment_plan_occurrence_id IS NOT NULL"),
+        ),
+        CheckConstraint(
             "(type = 'transfer' AND to_account_id IS NOT NULL "
             "AND to_account_id != account_id) "
             "OR (type != 'transfer' AND to_account_id IS NULL)",
@@ -90,6 +105,12 @@ class Transaction(Base):
         UUID(as_uuid=True),
         ForeignKey("payment_plans.id", ondelete="SET NULL"),
         index=True,
+    )
+    # Identificador determinista derivado de (plan, fecha programada). Las dos
+    # patas de una transferencia lo comparten para que la restricción anterior
+    # pueda rechazar una segunda materialización completa.
+    payment_plan_occurrence_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True)
     )
     # Sin ForeignKey propia: solo enlaza entre sí las dos patas de una
     # misma transferencia (mismo valor en ambas filas), no referencia a

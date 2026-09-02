@@ -218,6 +218,7 @@ class TransactionService:
             date=command.date,
             notes=command.notes,
             payment_plan_id=command.payment_plan_id,
+            payment_plan_occurrence_id=command.payment_plan_occurrence_id,
         )
         transaction = self.transaction_repo.create_transaction(user_id, row)
         return TransactionRead.model_validate(transaction)
@@ -251,6 +252,7 @@ class TransactionService:
             date=command.date,
             notes=command.notes,
             payment_plan_id=command.payment_plan_id,
+            payment_plan_occurrence_id=command.payment_plan_occurrence_id,
         )
         destination_row = TransactionRowCommand(
             account_id=to_account_id,
@@ -262,6 +264,7 @@ class TransactionService:
             date=command.date,
             notes=command.notes,
             payment_plan_id=command.payment_plan_id,
+            payment_plan_occurrence_id=command.payment_plan_occurrence_id,
         )
         origin_transaction = self.transaction_repo.create_transaction(
             user_id, origin_row
