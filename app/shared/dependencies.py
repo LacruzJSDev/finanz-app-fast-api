@@ -1,13 +1,14 @@
 import uuid
 from typing import Annotated
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import APIKeyCookie
 from jose import JWTError
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import get_db
-from app.shared.exceptions import UnauthorizedError
+from app.shared.exceptions import ForbiddenError, UnauthorizedError
 from app.shared.jwt import ACCESS_TOKEN_TYPE, decode_token
 from app.users.models import User
 from app.users.repository import UserRepository
@@ -69,3 +70,24 @@ _refresh_token_scheme = APIKeyCookie(
 )
 
 RefreshToken = Annotated[str | None, Depends(_refresh_token_scheme)]
+
+
+def require_trusted_origin(request: Request) -> None:
+    """Bloquea mutaciones con cookies si no proceden de un origen permitido.
+
+    Las cookies httpOnly no pueden llevar un token anti-CSRF leído por
+    JavaScript. La protección elegida para la API es exigir `Origin` en toda
+    mutación que incluya una cookie de autenticación y compararlo con la lista
+    explícita de CORS. Los endpoints públicos (registro y login) no llevan
+    todavía una cookie y no quedan bloqueados; GET/HEAD/OPTIONS son seguros.
+    """
+    if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+        return
+
+    auth_cookie_names = {ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE}
+    if not auth_cookie_names.intersection(request.cookies):
+        return
+
+    origin = request.headers.get("origin")
+    if origin not in settings.cors_allowed_origins:
+        raise ForbiddenError("Origen no permitido")

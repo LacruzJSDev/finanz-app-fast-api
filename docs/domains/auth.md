@@ -87,7 +87,7 @@ Ningún endpoint devuelve `access_token` ni `refresh_token` como campo del cuerp
 
 La razón de no ponerlos en el cuerpo: un token en el JSON de la respuesta solo puede guardarlo el cliente en algún sitio accesible por JavaScript (`localStorage`, una variable en memoria...), y cualquier XSS que consiga ejecutar código en la página puede leerlo de ahí y robarlo. Una cookie `httpOnly` no la puede leer JavaScript bajo ningún concepto — el navegador la adjunta solo a las peticiones, sin que el código de la aplicación llegue a tocar el valor.
 
-Frontend y backend viven en dominios distintos (no es un caso de mismo dominio con rutas `/api`), así que esto es una cookie **cross-site** de verdad, con las implicaciones que conlleva:
+Frontend y backend viven en orígenes distintos (no es un caso de mismo origen con rutas `/api`), pero en producción comparten site: `finanzapp.entramaes.com` y `api.finanzapp.entramaes.com` usan HTTPS bajo el mismo dominio registrable. Por eso CORS es necesario, pero no hace falta relajar `SameSite` a `None`.
 
 | Cookie | Path | Contiene | Motivo del `Path` |
 |---|---|---|---|
@@ -97,11 +97,11 @@ Frontend y backend viven en dominios distintos (no es un caso de mismo dominio c
 Atributos comunes a las dos:
 
 - **`HttpOnly`** — siempre. Inaccesible desde JavaScript.
-- **`Secure`** — solo en producción. Obligatorio en cuanto `SameSite=None`; en desarrollo, con todo bajo `localhost`, no hace falta.
-- **`SameSite`** — `None` en producción (dominios registrables distintos, cookie cross-site real); `Lax` en desarrollo (frontend y backend comparten `localhost`, aunque en puertos distintos, y `Lax` ya basta para peticiones `fetch`/XHR entre ellos).
+- **`Secure`** — solo en producción: una cookie de sesión no puede viajar por HTTP.
+- **`SameSite`** — `Lax` en todos los entornos. Entre los dos subdominios HTTPS de producción, igual que entre puertos de `localhost` en desarrollo, sigue siendo una petición same-site y `Lax` permite `fetch`/XHR con credenciales.
 - **Expiración** — igual que la del JWT que contienen: `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` / `JWT_REFRESH_TOKEN_EXPIRE_DAYS` (ver sección 6).
 
-Con credenciales viajando en cookies cross-site, el CORS del backend exige el origen exacto del frontend en `CORS_ALLOWED_ORIGINS` (nunca `*`) y `allow_credentials=True`; el cliente, por su parte, tiene que mandar sus peticiones con `credentials: "include"` (o el equivalente de su librería HTTP) para que el navegador adjunte las cookies. Ver `ARCHITECTURE.md` §5.7.
+El CORS del backend exige el origen exacto del frontend en `CORS_ALLOWED_ORIGINS` (nunca `*`) y `allow_credentials=True`; el cliente manda las peticiones con `credentials: "include"`. Además, una mutación que ya incluya `access_token` o `refresh_token` debe llevar una cabecera `Origin` incluida en esa lista; si no, responde `403`. Esto evita CSRF sin exponer un token a JavaScript. Ver `ARCHITECTURE.md` §5.7.
 
 ## 6. Reglas de negocio
 
@@ -131,3 +131,4 @@ Con credenciales viajando en cookies cross-site, el CORS del backend exige el or
 - Tras un `logout`, el refresh token usado deja de ser válido para `refresh`, pero el resto de sesiones del usuario en otros dispositivos siguen activas.
 - Un login con Google usando un email ya registrado por `local` no crea un segundo `User`; ambos métodos quedan vinculados al mismo `User`.
 - Un `change_password` con la contraseña actual incorrecta y un `change_password` sobre una cuenta sin método `local` (por ejemplo, registrada solo con Google) devuelven la misma respuesta `401`, indistinguible entre sí.
+- Un `logout`, `refresh` o `change_password` que reciba una cookie de autenticación sin un `Origin` permitido devuelve `403` con el contrato de error común.

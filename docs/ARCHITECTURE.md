@@ -113,10 +113,10 @@ Variables de entorno esperadas:
 | `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | Duración del token de acceso |
 | `JWT_REFRESH_TOKEN_EXPIRE_DAYS` | Duración del refresh token |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Credenciales OAuth 2.0 para el proveedor Google |
-| `CORS_ALLOWED_ORIGINS` | Orígenes permitidos para peticiones cross-origin |
-| `ENVIRONMENT` | Entorno de ejecución (`development` / `production`) |
+| `CORS_ALLOWED_ORIGINS` | Orígenes permitidos para peticiones cross-origin; obligatorio en producción y solo orígenes HTTPS exactos separados por comas |
+| `ENVIRONMENT` | Entorno de ejecución (`development` / `production`); cualquier otro valor impide arrancar |
 
-Los valores por defecto de desarrollo se cargan desde un fichero `.env` no versionado. La aplicación no debe arrancar si falta una variable obligatoria.
+Los valores por defecto de desarrollo se cargan desde un fichero `.env` no versionado. La aplicación no debe arrancar si falta una variable obligatoria. En producción también falla si `SECRET_KEY` tiene menos de 32 caracteres, si no hay orígenes CORS, si se repiten, si incluyen `*` o si no son orígenes HTTPS exactos (sin ruta, query ni fragmento).
 
 ---
 
@@ -240,11 +240,13 @@ Un `500` nunca expone la excepción original. El traceback completo va al log de
 
 ### 5.7 CORS
 
-Frontend y backend viven en dominios distintos — no es un despliegue de mismo dominio con rutas `/api`, sino dos orígenes separados de verdad. Como la sesión viaja en cookies (ver §7.1), esto son peticiones cross-site, no solo cross-origin, y eso condiciona toda la configuración:
+Frontend y backend viven en orígenes distintos — no es un despliegue de mismo origen con rutas `/api` — pero en producción son el mismo **site**: `https://finanzapp.entramaes.com` y `https://api.finanzapp.entramaes.com` comparten dominio registrable y esquema HTTPS. La distinción importa: CORS sigue siendo necesario por ser cross-origin, mientras que `SameSite=Lax` sí permite las cookies entre ambos.
 
-- Los orígenes permitidos se configuran mediante `CORS_ALLOWED_ORIGINS`, como lista explícita. No se permite el origen comodín (`*`): un navegador lo rechaza en cuanto la petición lleva credenciales (cookies), así que con `*` las peticiones cross-site fallarían igualmente.
+- Los orígenes permitidos se configuran mediante `CORS_ALLOWED_ORIGINS`, como lista explícita. En producción deben ser HTTPS, sin ruta, y no se permite el comodín (`*`).
 - El middleware de CORS se registra con `allow_credentials=True`, imprescindible para que el navegador adjunte cookies en peticiones entre orígenes.
 - El cliente debe emitir sus peticiones con `credentials: "include"` (o el equivalente de su librería HTTP); sin eso, el navegador no manda la cookie aunque el origen esté permitido.
+- Toda mutación (`POST`, `PUT`, `PATCH`, `DELETE`) que lleve `access_token` o `refresh_token` exige además una cabecera `Origin` exactamente incluida en `CORS_ALLOWED_ORIGINS`. Si falta o no coincide responde `403` con el contrato de error común. Es la defensa CSRF elegida para cookies httpOnly; registro y login no llevan una cookie previa y no quedan bloqueados por ella.
+- `GET`, `HEAD` y `OPTIONS` son siempre operaciones sin efectos. Una ruta nueva que cambie estado debe usar uno de los métodos mutantes anteriores; de lo contrario evitaría la validación de origen.
 
 ### 5.8 Endpoint de estado
 

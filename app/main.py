@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
 from app.account_groups.router import router as account_groups_router
@@ -9,6 +9,7 @@ from app.categories.router import router as categories_router
 from app.config import settings
 from app.payment_plans.router import group_router as payment_plans_group_router
 from app.payment_plans.router import router as payment_plans_router
+from app.shared.dependencies import require_trusted_origin
 from app.shared.error_handlers import register_error_handlers
 from app.shared.openapi_responses import VALIDATION_ERROR
 from app.transactions.router import query_router as transactions_query_router
@@ -31,11 +32,11 @@ app = FastAPI(
 # Unifica la forma de TODAS las respuestas de error (ver ARCHITECTURE.md §5.6).
 register_error_handlers(app)
 
-# Frontend y backend viven en dominios distintos: sin esto, el navegador
+# Frontend y backend viven en orígenes distintos: sin esto, el navegador
 # bloquea toda petición hecha con fetch/XHR antes de que llegue aquí.
-# allow_credentials=True es lo que permite que las cookies de sesión viajen
-# en peticiones cross-site — exige un origen explícito en allow_origins, "*"
-# no vale en cuanto se permiten credenciales (ver ARCHITECTURE.md §5.7).
+# allow_credentials=True permite que las cookies same-site viajen entre ambos;
+# exige un origen explícito en allow_origins, "*" no vale con credenciales
+# (ver ARCHITECTURE.md §5.7).
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_allowed_origins,
@@ -49,24 +50,71 @@ app.add_middleware(
 #
 # responses=VALIDATION_ERROR aquí, una sola vez para todos los routers en vez
 # de en cada endpoint (ver openapi_responses.py).
-app.include_router(auth_router, prefix="/api/v1", responses=VALIDATION_ERROR)
-app.include_router(account_groups_router, prefix="/api/v1", responses=VALIDATION_ERROR)
-app.include_router(accounts_router, prefix="/api/v1", responses=VALIDATION_ERROR)
-app.include_router(categories_router, prefix="/api/v1", responses=VALIDATION_ERROR)
-app.include_router(transactions_router, prefix="/api/v1", responses=VALIDATION_ERROR)
-app.include_router(payment_plans_router, prefix="/api/v1", responses=VALIDATION_ERROR)
-app.include_router(users_router, prefix="/api/v1", responses=VALIDATION_ERROR)
+origin_protection = [Depends(require_trusted_origin)]
+app.include_router(
+    auth_router,
+    prefix="/api/v1",
+    responses=VALIDATION_ERROR,
+    dependencies=origin_protection,
+)
+app.include_router(
+    account_groups_router,
+    prefix="/api/v1",
+    responses=VALIDATION_ERROR,
+    dependencies=origin_protection,
+)
+app.include_router(
+    accounts_router,
+    prefix="/api/v1",
+    responses=VALIDATION_ERROR,
+    dependencies=origin_protection,
+)
+app.include_router(
+    categories_router,
+    prefix="/api/v1",
+    responses=VALIDATION_ERROR,
+    dependencies=origin_protection,
+)
+app.include_router(
+    transactions_router,
+    prefix="/api/v1",
+    responses=VALIDATION_ERROR,
+    dependencies=origin_protection,
+)
+app.include_router(
+    payment_plans_router,
+    prefix="/api/v1",
+    responses=VALIDATION_ERROR,
+    dependencies=origin_protection,
+)
+app.include_router(
+    users_router,
+    prefix="/api/v1",
+    responses=VALIDATION_ERROR,
+    dependencies=origin_protection,
+)
 
 # Routers de consulta y agregados (ARCHITECTURE.md §8.3). Van aparte de los de
 # CRUD porque un APIRouter solo admite un prefijo, y estos cuelgan del grupo,
 # no de la cuenta.
 app.include_router(
-    transactions_query_router, prefix="/api/v1", responses=VALIDATION_ERROR
+    transactions_query_router,
+    prefix="/api/v1",
+    responses=VALIDATION_ERROR,
+    dependencies=origin_protection,
 )
 app.include_router(
-    payment_plans_group_router, prefix="/api/v1", responses=VALIDATION_ERROR
+    payment_plans_group_router,
+    prefix="/api/v1",
+    responses=VALIDATION_ERROR,
+    dependencies=origin_protection,
 )
-app.include_router(budgets_router, prefix="/api/v1", responses=VALIDATION_ERROR)
+app.include_router(
+    budgets_router,
+    prefix="/api/v1",
+    responses=VALIDATION_ERROR,
+    dependencies=origin_protection,
+)
 
 
 @app.get("/health", tags=["health"])
