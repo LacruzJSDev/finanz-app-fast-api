@@ -286,7 +286,7 @@ Las invariantes de negocio no expresables mediante claves foráneas simples (jer
 
 Autenticación basada en JSON Web Tokens, con soporte de múltiples proveedores de identidad desde el diseño inicial: credenciales locales (hash mediante bcrypt) y OAuth 2.0 (Google). La identidad (`users`) y el método de autenticación (`auth_providers`) están modelados por separado, permitiendo múltiples métodos por usuario.
 
-La renovación de sesión se gestiona mediante refresh tokens; se persiste su hash, nunca el valor en claro, permitiendo revocación selectiva.
+La renovación de sesión se gestiona mediante refresh tokens; se persiste su hash, nunca el valor en claro, permitiendo revocación selectiva. Cada rotación consume la sesión mediante un `UPDATE` condicionado por hash, revocación y expiración, de modo que dos solicitudes concurrentes no pueden emitir dos sesiones desde el mismo token.
 
 Ningún token viaja en el cuerpo de una respuesta ni en la cabecera `Authorization`: los endpoints que autentican (`register`, `login`, `google`, `refresh`) los entregan como cookies `httpOnly` — inaccesibles desde JavaScript, lo que cierra la vía más común de robo de tokens vía XSS. Duración, nombres, `Path` y el resto de atributos de cada cookie están documentados en `docs/domains/auth.md` §5, junto con la configuración de CORS que hace falta porque frontend y backend son dominios distintos (ver §5.7).
 

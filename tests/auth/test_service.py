@@ -1,12 +1,14 @@
 import uuid
 from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 
 from app.auth.models import AuthProvider, AuthProviderEnum, UserSession
 from app.auth.repository import AuthRepository
+from app.auth.schemas import ChangePasswordRequest, RegisterRequest
 from app.auth.service import AuthService
 from app.shared.bcrypt import hash_password, verify_password
 from app.shared.exceptions import ConflictError, UnauthorizedError
@@ -83,8 +85,11 @@ class TestLogin:
     ):
         user_repo.get_user_by_email.return_value = None
 
-        with pytest.raises(UnauthorizedError):
-            service.login("nobody@test.com", "whatever")
+        with patch("app.auth.service.verify_password", return_value=False) as verify:
+            with pytest.raises(UnauthorizedError):
+                service.login("nobody@test.com", "whatever")
+
+        verify.assert_called_once()
 
     def test_raises_unauthorized_when_no_local_provider(
         self, service: AuthService, user_repo: MagicMock, auth_repo: MagicMock
@@ -233,10 +238,58 @@ class TestRefresh:
         result = service.refresh("old-token")
 
         assert result.user.id == user.id
-        auth_repo.revoke_session_by_refresh_token_hash.assert_called_once_with(
-            hash_token("old-token")
-        )
+        auth_repo.consume_active_session_by_refresh_token_hash.assert_called_once()
+        consume_args = auth_repo.consume_active_session_by_refresh_token_hash.call_args
+        assert consume_args.args[0] == hash_token("old-token")
+        assert isinstance(consume_args.args[1], datetime)
+        auth_repo.revoke_session_by_refresh_token_hash.assert_not_called()
         auth_repo.create_session.assert_called_once()
+
+    def test_rejects_refresh_when_another_request_consumes_it(
+        self, service: AuthService, auth_repo: MagicMock, user_repo: MagicMock
+    ):
+        user = make_user()
+        auth_repo.get_session_by_refresh_token_hash.return_value = make_session(
+            user.id, "old-token"
+        )
+        user_repo.get_user_by_id.return_value = user
+        auth_repo.consume_active_session_by_refresh_token_hash.return_value = None
+
+        with pytest.raises(UnauthorizedError):
+            service.refresh("old-token")
+
+        auth_repo.create_session.assert_not_called()
+
+
+class TestPasswordByteLimit:
+    def test_register_rejects_a_password_over_72_utf8_bytes(self):
+        with pytest.raises(ValidationError):
+            RegisterRequest.model_validate(
+                {"email": "user@test.com", "name": "User", "password": "€" * 25}
+            )
+
+    def test_change_password_rejects_a_password_over_72_utf8_bytes(self):
+        with pytest.raises(ValidationError):
+            ChangePasswordRequest.model_validate(
+                {"current_password": "Password123!", "new_password": "€" * 25}
+            )
+
+
+class TestAtomicRefreshRepository:
+    def test_consumes_only_an_active_unexpired_session(self):
+        db = MagicMock()
+        now = datetime.now(timezone.utc)
+        refresh_token_hash = hash_token("refresh-token")
+
+        AuthRepository(db).consume_active_session_by_refresh_token_hash(
+            refresh_token_hash, now
+        )
+
+        statement = db.execute.call_args.args[0]
+        params = statement.compile().params
+        assert refresh_token_hash in params.values()
+        assert now in params.values()
+        assert True in params.values()
 
 
 class TestChangePassword:
