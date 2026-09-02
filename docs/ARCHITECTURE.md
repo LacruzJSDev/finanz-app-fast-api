@@ -300,6 +300,8 @@ Resuelto mediante inyección de dependencias encadenadas:
 
 Las mutaciones de membresías que puedan retirar o degradar un `owner` (`PATCH` y `DELETE` de miembros) vuelven a leer todas las pertenencias con `SELECT ... FOR UPDATE`, ordenadas por identificador, dentro de la transacción de la petición. La comprobación de que queda al menos un `owner` y el cambio se ejecutan así sobre la misma fotografía bloqueada, evitando que dos peticiones concurrentes dejen el grupo sin propietario. Un objetivo que no sea miembro se trata como `404`; la autorización del solicitante no cambia.
 
+Las relaciones que no pueden expresarse con una clave foránea simple se mantienen también en PostgreSQL: los triggers de categorías y los de transferencias/planes de transferencia verifican que las cuentas y categorías relacionadas estén dentro del mismo grupo. La validación de aplicación se conserva para traducir el caso esperado a `409`, pero no es la única barrera de integridad.
+
 ### 7.3 Separación entre identidad y autenticación
 
 El dominio `users` gestiona el perfil (`GET /me`, `PATCH /me`) de forma independiente del dominio `auth`, que gestiona exclusivamente el ciclo de autenticación (`POST /auth/login`, `POST /auth/google`, `POST /auth/refresh`, `POST /auth/logout`).
