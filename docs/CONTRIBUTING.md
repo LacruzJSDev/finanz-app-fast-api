@@ -155,9 +155,9 @@ pyright
 pytest
 ```
 
-`pyright` no es opcional aunque el CI todavía no lo ejecute: `pyproject.toml` lo
-configura en modo `strict`, así que un cambio puede dejar los tipos rotos con
-ruff y pytest en verde. Se instala con `requirements-dev.txt`.
+`pyright` no es opcional: `pyproject.toml` lo configura en modo `strict` y el
+workflow de CI lo ejecuta antes de las pruebas. Se instala con
+`requirements-dev.txt`.
 
 ### Pruebas de integración locales
 
@@ -176,6 +176,10 @@ acepta una base que no termine en `_test` ni una URL distinta de
 `DATABASE_URL`; esas comprobaciones evitan que una ejecución local borre la
 base de desarrollo. Sin `TEST_DATABASE_URL`, `pytest` sigue ejecutando las
 pruebas unitarias y omite las de integración.
+
+En CI no se omiten: el workflow inicia un PostgreSQL efímero, configura ambas
+variables para `finanzapp_test` y ejecuta la suite completa, incluidas las
+pruebas de migraciones y triggers.
 
 Cuando falta algo en una migración, es más limpio corregir la migración y
 regenerarla que añadir una segunda migración parche encima — **siempre que no
