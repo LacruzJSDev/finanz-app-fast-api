@@ -222,6 +222,8 @@ Esta forma **no** es la que FastAPI produce por defecto — sin intervención de
 
 Un error de autorización nunca se enmascara como `404`.
 
+Cuando PostgreSQL detecta una restricción antes que la comprobación de aplicación —por ejemplo, por una carrera entre dos peticiones— los SQLSTATE conocidos de unicidad, clave foránea, `CHECK`/trigger y exclusión se traducen también a `409` con este mismo contrato. No se expone el texto del motor ni el nombre de la restricción; un error de base de datos desconocido sigue siendo `500` y se registra para investigarlo.
+
 #### Cómo se lanzan
 
 La capa de servicio lanza excepciones de dominio, nunca `HTTPException`: así `service.py` no necesita conocer FastAPI ni los códigos HTTP (ver sección 2.2). La jerarquía base vive en `app/shared/exceptions.py`, y cada dominio deriva las suyas con un `code` propio:
