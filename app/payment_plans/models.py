@@ -45,6 +45,11 @@ class PaymentPlan(Base):
             name="end_date_after_due",
         ),
         CheckConstraint(
+            "(is_recurring = TRUE AND recurrence_anchor_day BETWEEN 1 AND 31) "
+            "OR (is_recurring = FALSE AND recurrence_anchor_day IS NULL)",
+            name="recurrence_anchor_day_consistent",
+        ),
+        CheckConstraint(
             "(type = 'transfer' AND to_account_id IS NOT NULL "
             "AND to_account_id != account_id) "
             "OR (type != 'transfer' AND to_account_id IS NULL)",
@@ -89,6 +94,10 @@ class PaymentPlan(Base):
     amount: Mapped[int] = mapped_column(BigInteger)
     description: Mapped[str | None] = mapped_column(Text)
     next_due_date: Mapped[date_] = mapped_column(Date)
+    # Día original elegido por el usuario. next_due_date puede estar recortado
+    # (p. ej. 28 de febrero para un ancla 31), pero el siguiente mes con 31
+    # debe recuperar el día original.
+    recurrence_anchor_day: Mapped[int | None] = mapped_column(Integer)
     end_date: Mapped[date_ | None] = mapped_column(Date)
     is_recurring: Mapped[bool] = mapped_column(server_default=text("false"))
     is_active: Mapped[bool] = mapped_column(server_default=text("true"))

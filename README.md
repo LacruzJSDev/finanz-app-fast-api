@@ -33,7 +33,8 @@ pendientes y arranca la API con recarga automática.
 
 - API: http://localhost:8000
 - Documentación interactiva: http://localhost:8000/docs
-- Health check: http://localhost:8000/health
+- Vitalidad del proceso: http://localhost:8000/health
+- Preparación completa (incluida PostgreSQL): http://localhost:8000/ready
 - Postgres (desde el host): `localhost:5433`
 
 ---
@@ -107,6 +108,19 @@ alembic downgrade -1
 ```bash
 pytest
 ```
+
+Las pruebas unitarias no necesitan base de datos. Las de integración usan
+PostgreSQL real, aplican las migraciones y limpian la base entre casos. Crea
+una base aislada acabada en `_test` y ejecuta:
+
+```bash
+export TEST_DATABASE_URL=postgresql://finanzapp:tu-clave@localhost:5433/finanzapp_test
+export DATABASE_URL="$TEST_DATABASE_URL"
+pytest -m integration
+```
+
+Consulta `docs/CONTRIBUTING.md` para la protección contra ejecutar esta suite
+sobre la base de desarrollo.
 
 ---
 

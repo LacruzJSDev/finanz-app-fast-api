@@ -97,7 +97,7 @@ def get_group_members(
 
 @router.patch(
     "/{group_id}/members/{user_id}",
-    responses=responses(UNAUTHORIZED, FORBIDDEN, CONFLICT),
+    responses=responses(UNAUTHORIZED, FORBIDDEN, NOT_FOUND, CONFLICT),
 )
 def change_group_member_role(
     payload: ChangeGroupMemberRoleRequest,
@@ -112,7 +112,7 @@ def change_group_member_role(
 @router.delete(
     "/{group_id}/members/{user_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    responses=responses(UNAUTHORIZED, FORBIDDEN, CONFLICT),
+    responses=responses(UNAUTHORIZED, FORBIDDEN, NOT_FOUND, CONFLICT),
 )
 def expel_group_member(
     service: AccountGroupServiceDep,

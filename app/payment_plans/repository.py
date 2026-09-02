@@ -32,6 +32,9 @@ class PaymentPlanRepository:
             amount=command.amount,
             description=command.description,
             next_due_date=command.next_due_date,
+            recurrence_anchor_day=(
+                command.next_due_date.day if command.is_recurring else None
+            ),
             end_date=command.end_date,
             is_recurring=command.is_recurring,
             frequency_interval=command.frequency_interval,
@@ -97,13 +100,19 @@ class PaymentPlanRepository:
             .limit(1)
         ).scalar_one_or_none()
 
-    def get_payment_plan_by_id(self, payment_plan_id: uuid.UUID) -> PaymentPlan | None:
-        return self.db.execute(
-            select(PaymentPlan).where(PaymentPlan.id == payment_plan_id)
-        ).scalar_one_or_none()
+    def get_payment_plan_by_id(
+        self, payment_plan_id: uuid.UUID, *, for_update: bool = False
+    ) -> PaymentPlan | None:
+        statement = select(PaymentPlan).where(PaymentPlan.id == payment_plan_id)
+        if for_update:
+            statement = statement.with_for_update()
+        return self.db.execute(statement).scalar_one_or_none()
 
     def update_payment_plan(
-        self, payment_plan_id: uuid.UUID, command: UpdatePaymentPlanCommand
+        self,
+        payment_plan_id: uuid.UUID,
+        command: UpdatePaymentPlanCommand,
+        user_id: uuid.UUID,
     ) -> PaymentPlan:
         values: dict[
             str,
@@ -126,6 +135,8 @@ class PaymentPlanRepository:
             values["description"] = command.description
         if command.next_due_date is not UNSET:
             values["next_due_date"] = command.next_due_date
+        if command.recurrence_anchor_day is not UNSET:
+            values["recurrence_anchor_day"] = command.recurrence_anchor_day
         if command.is_active is not UNSET:
             values["is_active"] = command.is_active
 
@@ -148,6 +159,7 @@ class PaymentPlanRepository:
             values["frequency_unit"] = command.frequency_unit
         if "end_date" not in values and command.end_date is not UNSET:
             values["end_date"] = command.end_date
+        values["updated_by"] = user_id
 
         return self.db.execute(
             update(PaymentPlan)

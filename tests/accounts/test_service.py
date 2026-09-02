@@ -13,6 +13,8 @@ from app.accounts.service import AccountService
 from app.shared.commands import UNSET
 from app.shared.exceptions import BadRequestError, ConflictError, NotFoundError
 
+ACTOR_ID = uuid.uuid4()
+
 
 def make_account(**overrides: object) -> Account:
     defaults: dict[str, object] = {
@@ -278,7 +280,7 @@ class TestUpdateAccount:
         command = UpdateAccountCommand()
 
         with pytest.raises(BadRequestError):
-            service.update_account(uuid.uuid4(), command)
+            service.update_account(uuid.uuid4(), command, ACTOR_ID)
 
     def test_updates_when_at_least_one_field(
         self, service: AccountService, account_repo: MagicMock
@@ -287,9 +289,13 @@ class TestUpdateAccount:
         account_repo.update_account.return_value = updated
         command = UpdateAccountCommand(name="Renamed")
 
-        result = service.update_account(uuid.uuid4(), command)
+        account_id = uuid.uuid4()
+        result = service.update_account(account_id, command, ACTOR_ID)
 
         assert result.name == "Renamed"
+        account_repo.update_account.assert_called_once_with(
+            account_id, command, ACTOR_ID
+        )
 
     def test_archiving_is_a_valid_sole_field(
         self, service: AccountService, account_repo: MagicMock
@@ -298,7 +304,7 @@ class TestUpdateAccount:
         account_repo.update_account.return_value = updated
         command = UpdateAccountCommand(is_active=False)
 
-        result = service.update_account(uuid.uuid4(), command)
+        result = service.update_account(uuid.uuid4(), command, ACTOR_ID)
 
         assert result.is_active is False
 
@@ -311,7 +317,7 @@ class TestUpdateAccountClearingFields:
     ):
         account_repo.update_account.return_value = make_account(color=None)
 
-        service.update_account(uuid.uuid4(), UpdateAccountCommand(color=None))
+        service.update_account(uuid.uuid4(), UpdateAccountCommand(color=None), ACTOR_ID)
 
         applied = account_repo.update_account.call_args.args[1]
         assert applied.color is None

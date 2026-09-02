@@ -95,11 +95,14 @@ class AccountRepository:
         ).scalar_one_or_none()
 
     def update_account(
-        self, account_id: uuid.UUID, account: UpdateAccountCommand
+        self,
+        account_id: uuid.UUID,
+        account: UpdateAccountCommand,
+        user_id: uuid.UUID,
     ) -> Account:
         # UNSET es la marca de ausencia: un None que llega aquí es un null
         # explícito del cliente y sí se escribe (ARCHITECTURE.md §5.5).
-        values: dict[str, str | bool | AccountTypeEnum | None] = {}
+        values: dict[str, uuid.UUID | str | bool | AccountTypeEnum | None] = {}
         if account.name is not UNSET:
             values["name"] = account.name
         if account.type is not UNSET:
@@ -110,6 +113,7 @@ class AccountRepository:
             values["icon"] = account.icon
         if account.is_active is not UNSET:
             values["is_active"] = account.is_active
+        values["updated_by"] = user_id
 
         return self.db.execute(
             update(Account)

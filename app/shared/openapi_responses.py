@@ -22,6 +22,9 @@ CONFLICT: ResponsesDict = {
         "description": "Conflicto con el estado actual del recurso",
     },
 }
+SERVICE_UNAVAILABLE: ResponsesDict = {
+    503: {"model": ErrorResponse, "description": "Dependencia no disponible"},
+}
 # Sobrescribe el HTTPValidationError que FastAPI documenta por defecto para
 # el 422: la respuesta real la construye validation_error_handler con la
 # misma forma que el resto de errores, no con la de FastAPI.

@@ -97,6 +97,7 @@ def get_transaction(
 def update_transaction(
     payload: UpdateTransactionRequest,
     service: TransactionServiceDep,
+    user: CurrentUser,
     account_id: uuid.UUID,
     transaction_id: uuid.UUID,
     account: RequireAccountMembership,
@@ -112,7 +113,7 @@ def update_transaction(
         date=payload.date if payload.date is not None else UNSET,
         notes=payload.notes if "notes" in fields_set else UNSET,
     )
-    return service.update_transaction(account_id, transaction_id, command)
+    return service.update_transaction(account_id, transaction_id, command, user.id)
 
 
 @router.delete(
@@ -122,11 +123,12 @@ def update_transaction(
 )
 def delete_transaction(
     service: TransactionServiceDep,
+    user: CurrentUser,
     account_id: uuid.UUID,
     transaction_id: uuid.UUID,
     account: RequireAccountMembership,
 ) -> None:
-    service.delete_transaction(account_id, transaction_id)
+    service.delete_transaction(account_id, transaction_id, user.id)
     return
 
 

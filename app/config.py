@@ -1,5 +1,7 @@
-from typing import Literal
+from typing import Literal, Self
+from urllib.parse import urlsplit
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,7 +26,7 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
     CORS_ALLOWED_ORIGINS: str = ""
-    ENVIRONMENT: str = "development"
+    ENVIRONMENT: Literal["development", "production"] = "development"
 
     model_config = SettingsConfigDict(
         # Fuera de Docker, las variables se leen del .env. Dentro, las inyecta
@@ -48,25 +50,58 @@ class Settings(BaseSettings):
     def cookie_secure(self) -> bool:
         """Si las cookies de sesión exigen HTTPS.
 
-        Frontend y backend viven en dominios distintos (no solo puertos
-        distintos de localhost), así que en producción la cookie es
-        cross-site de verdad, y los navegadores exigen `Secure` en cuanto
-        `SameSite=None` — sin HTTPS, el navegador la descarta en silencio.
+        En producción todo el tráfico de la aplicación llega por HTTPS, así
+        que una cookie de sesión no debe poder viajar por HTTP.
         """
         return self.ENVIRONMENT == "production"
 
     @property
-    def cookie_samesite(self) -> Literal["lax", "none"]:
-        """`none` en producción (cross-site real); `lax` en desarrollo.
+    def cookie_samesite(self) -> Literal["lax"]:
+        """Las cookies usan `Lax` porque frontend y API comparten site.
 
-        "Site" no es lo mismo que "origen": dos servicios en `localhost` con
-        puertos distintos (típico en desarrollo: Vite en :5173, la API en
-        :8000) siguen siendo el MISMO site, así que `lax` ya deja pasar la
-        cookie en peticiones fetch/XHR sin necesitar `Secure` ni HTTPS local.
-        En producción, con dominios registrables distintos de verdad,
-        `SameSite=Lax` bloquearía la cookie y hace falta `none` (+ Secure).
+        "Site" no es lo mismo que "origen": en producción
+        finanzapp.entramaes.com y api.finanzapp.entramaes.com comparten el
+        dominio registrable y HTTPS; en desarrollo los puertos de localhost
+        tampoco cambian el site. `Lax` permite las peticiones fetch/XHR entre
+        esos orígenes y evita enviar las cookies en un contexto cross-site.
         """
-        return "none" if self.ENVIRONMENT == "production" else "lax"
+        return "lax"
+
+    @model_validator(mode="after")
+    def validate_production_security(self) -> Self:
+        """Impide arrancar producción con una sesión o CORS inseguros."""
+        if self.ENVIRONMENT != "production":
+            return self
+
+        if len(self.SECRET_KEY) < 32:
+            raise ValueError(
+                "SECRET_KEY debe tener al menos 32 caracteres en producción"
+            )
+
+        origins = self.cors_allowed_origins
+        if not origins:
+            raise ValueError("CORS_ALLOWED_ORIGINS es obligatorio en producción")
+        if len(origins) != len(set(origins)):
+            raise ValueError(
+                "CORS_ALLOWED_ORIGINS no puede contener orígenes repetidos"
+            )
+
+        for origin in origins:
+            parsed = urlsplit(origin)
+            if (
+                parsed.scheme != "https"
+                or not parsed.netloc
+                or parsed.path
+                or parsed.query
+                or parsed.fragment
+                or parsed.username is not None
+                or parsed.password is not None
+            ):
+                raise ValueError(
+                    "CORS_ALLOWED_ORIGINS debe contener orígenes HTTPS exactos"
+                )
+
+        return self
 
 
 # type: ignore silencia un falso positivo conocido de pydantic-settings: el

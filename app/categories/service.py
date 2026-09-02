@@ -63,7 +63,10 @@ class CategoryService:
         return CategoryRead.model_validate(category)
 
     def update_category(
-        self, category_id: uuid.UUID, category: UpdateCategoryCommand
+        self,
+        category_id: uuid.UUID,
+        category: UpdateCategoryCommand,
+        user_id: uuid.UUID,
     ) -> CategoryRead:
         fields = (
             category.name,
@@ -83,5 +86,7 @@ class CategoryService:
                 raise NotFoundError("La categoría no existe")
             self._check_parent(category.parent_id, current.group_id, category_id)
 
-        updated_category = self.category_repo.update_category(category_id, category)
+        updated_category = self.category_repo.update_category(
+            category_id, category, user_id
+        )
         return CategoryRead.model_validate(updated_category)

@@ -103,6 +103,7 @@ def get_payment_plan(
 def update_payment_plan(
     payload: UpdatePaymentPlanRequest,
     service: PaymentPlanServiceDep,
+    user: CurrentUser,
     account_id: uuid.UUID,
     payment_plan_id: uuid.UUID,
     account: RequireAccountOwnerOrAdmin,
@@ -128,7 +129,7 @@ def update_payment_plan(
         ),
         is_active=payload.is_active if payload.is_active is not None else UNSET,
     )
-    return service.update_payment_plan(account_id, payment_plan_id, command)
+    return service.update_payment_plan(account_id, payment_plan_id, command, user.id)
 
 
 @group_router.get("/upcoming", responses=responses(UNAUTHORIZED, FORBIDDEN))

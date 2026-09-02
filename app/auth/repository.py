@@ -78,6 +78,27 @@ class AuthRepository:
             .values(revoked=True)
         )
 
+    def consume_active_session_by_refresh_token_hash(
+        self, refresh_token_hash: str, now: datetime
+    ) -> UserSession | None:
+        """Revoca y devuelve una sesión válida en una única operación atómica.
+
+        Dos renovaciones concurrentes pueden leer la misma sesión activa. La
+        condición `revoked = false` dentro del UPDATE hace que solo una gane;
+        la otra recibe cero filas y su refresh token ya no puede generar una
+        segunda sesión.
+        """
+        return self.db.execute(
+            update(UserSession)
+            .where(
+                UserSession.refresh_token_hash == refresh_token_hash,
+                UserSession.revoked.is_(False),
+                UserSession.expires_at >= now,
+            )
+            .values(revoked=True)
+            .returning(UserSession)
+        ).scalar_one_or_none()
+
     def get_session_by_refresh_token_hash(
         self, refresh_token_hash: str
     ) -> UserSession | None:
