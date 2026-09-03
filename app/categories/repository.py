@@ -60,7 +60,10 @@ class CategoryRepository:
         )
 
     def update_category(
-        self, category_id: uuid.UUID, category: UpdateCategoryCommand
+        self,
+        category_id: uuid.UUID,
+        category: UpdateCategoryCommand,
+        user_id: uuid.UUID,
     ) -> Category:
         # UNSET es la marca de ausencia; un None que llega aquí es un null
         # explícito del cliente y sí se escribe (ARCHITECTURE.md §5.5).
@@ -75,6 +78,7 @@ class CategoryRepository:
             values["icon"] = category.icon
         if category.is_active is not UNSET:
             values["is_active"] = category.is_active
+        values["updated_by"] = user_id
 
         return self.db.execute(
             update(Category)

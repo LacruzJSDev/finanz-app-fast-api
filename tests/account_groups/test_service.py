@@ -355,6 +355,22 @@ class TestUpdateGroup:
 
 
 class TestChangeGroupMemberRole:
+    def test_uses_locked_members_and_returns_404_for_missing_target(
+        self, service: AccountGroupService, member_repo: MagicMock
+    ):
+        group_id = uuid.uuid4()
+        member_repo.get_group_members_by_group_id.return_value = []
+
+        with pytest.raises(NotFoundError):
+            service.change_group_member_role(
+                group_id, uuid.uuid4(), AccountGroupMemberRoleEnum.ADMIN
+            )
+
+        member_repo.get_group_members_by_group_id.assert_called_once_with(
+            group_id, for_update=True
+        )
+        member_repo.change_group_member_role.assert_not_called()
+
     def test_raises_conflict_when_demoting_sole_owner(
         self, service: AccountGroupService, member_repo: MagicMock
     ):
@@ -416,6 +432,20 @@ class TestChangeGroupMemberRole:
 
 
 class TestExpelGroupMember:
+    def test_uses_locked_members_and_returns_404_for_missing_target(
+        self, service: AccountGroupService, member_repo: MagicMock
+    ):
+        group_id = uuid.uuid4()
+        member_repo.get_group_members_by_group_id.return_value = []
+
+        with pytest.raises(NotFoundError):
+            service.expel_group_member(group_id, uuid.uuid4(), uuid.uuid4())
+
+        member_repo.get_group_members_by_group_id.assert_called_once_with(
+            group_id, for_update=True
+        )
+        member_repo.delete_group_member.assert_not_called()
+
     def test_raises_conflict_when_expelling_sole_owner(
         self, service: AccountGroupService, member_repo: MagicMock
     ):

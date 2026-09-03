@@ -13,3 +13,6 @@ include = ["app", "alembic", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "integration: prueba que necesita una instancia aislada de PostgreSQL",
+]

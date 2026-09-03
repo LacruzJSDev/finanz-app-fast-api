@@ -13,6 +13,8 @@ from app.categories.service import CategoryService
 from app.shared.commands import UNSET
 from app.shared.exceptions import BadRequestError, ConflictError, NotFoundError
 
+ACTOR_ID = uuid.uuid4()
+
 
 def make_category(**overrides: object) -> Category:
     defaults: dict[str, object] = {
@@ -167,7 +169,7 @@ class TestUpdateCategory:
         command = UpdateCategoryCommand()
 
         with pytest.raises(BadRequestError):
-            service.update_category(uuid.uuid4(), command)
+            service.update_category(uuid.uuid4(), command, ACTOR_ID)
 
     def test_updates_simple_field_without_touching_parent(
         self, service: CategoryService, category_repo: MagicMock
@@ -176,9 +178,13 @@ class TestUpdateCategory:
         category_repo.update_category.return_value = updated
         command = UpdateCategoryCommand(name="Renamed")
 
-        result = service.update_category(uuid.uuid4(), command)
+        category_id = uuid.uuid4()
+        result = service.update_category(category_id, command, ACTOR_ID)
 
         assert result.name == "Renamed"
+        category_repo.update_category.assert_called_once_with(
+            category_id, command, ACTOR_ID
+        )
         category_repo.get_category_by_id.assert_not_called()
 
     def test_raises_not_found_when_category_itself_missing(
@@ -188,7 +194,7 @@ class TestUpdateCategory:
         command = UpdateCategoryCommand(parent_id=uuid.uuid4())
 
         with pytest.raises(NotFoundError):
-            service.update_category(uuid.uuid4(), command)
+            service.update_category(uuid.uuid4(), command, ACTOR_ID)
 
     def test_raises_conflict_when_new_parent_is_self(
         self, service: CategoryService, category_repo: MagicMock
@@ -200,7 +206,7 @@ class TestUpdateCategory:
         command = UpdateCategoryCommand(parent_id=category_id)
 
         with pytest.raises(ConflictError):
-            service.update_category(category_id, command)
+            service.update_category(category_id, command, ACTOR_ID)
 
     def test_raises_conflict_when_category_already_has_children(
         self, service: CategoryService, category_repo: MagicMock
@@ -219,7 +225,7 @@ class TestUpdateCategory:
         command = UpdateCategoryCommand(parent_id=other_root.id)
 
         with pytest.raises(ConflictError):
-            service.update_category(category_id, command)
+            service.update_category(category_id, command, ACTOR_ID)
 
     def test_reparents_successfully_when_valid(
         self, service: CategoryService, category_repo: MagicMock
@@ -240,7 +246,7 @@ class TestUpdateCategory:
         category_repo.update_category.return_value = updated
 
         command = UpdateCategoryCommand(parent_id=new_root.id)
-        result = service.update_category(category_id, command)
+        result = service.update_category(category_id, command, ACTOR_ID)
 
         assert result.parent_id == new_root.id
 
@@ -251,7 +257,7 @@ class TestUpdateCategory:
         category_repo.update_category.return_value = updated
         command = UpdateCategoryCommand(is_active=False)
 
-        result = service.update_category(uuid.uuid4(), command)
+        result = service.update_category(uuid.uuid4(), command, ACTOR_ID)
 
         assert result.is_active is False
         category_repo.get_category_by_id.assert_not_called()
@@ -265,7 +271,9 @@ class TestUpdateCategoryClearingFields:
     ):
         category_repo.update_category.return_value = make_category(parent_id=None)
 
-        service.update_category(uuid.uuid4(), UpdateCategoryCommand(parent_id=None))
+        service.update_category(
+            uuid.uuid4(), UpdateCategoryCommand(parent_id=None), ACTOR_ID
+        )
 
         applied = category_repo.update_category.call_args.args[1]
         assert applied.parent_id is None
@@ -277,7 +285,9 @@ class TestUpdateCategoryClearingFields:
     ):
         category_repo.update_category.return_value = make_category(color=None)
 
-        service.update_category(uuid.uuid4(), UpdateCategoryCommand(color=None))
+        service.update_category(
+            uuid.uuid4(), UpdateCategoryCommand(color=None), ACTOR_ID
+        )
 
         applied = category_repo.update_category.call_args.args[1]
         assert applied.color is None

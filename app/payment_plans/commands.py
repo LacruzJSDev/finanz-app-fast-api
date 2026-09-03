@@ -39,3 +39,6 @@ class UpdatePaymentPlanCommand:
     frequency_interval: int | None | UnsetType = UNSET
     frequency_unit: FrequencyUnitEnum | None | UnsetType = UNSET
     is_active: bool | UnsetType = UNSET
+    # Campo interno: no forma parte del PATCH público. El servicio lo deriva
+    # de next_due_date para mantener el ancla de calendario.
+    recurrence_anchor_day: int | None | UnsetType = UNSET

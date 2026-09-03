@@ -113,10 +113,10 @@ Variables de entorno esperadas:
 | `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | Duración del token de acceso |
 | `JWT_REFRESH_TOKEN_EXPIRE_DAYS` | Duración del refresh token |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Credenciales OAuth 2.0 para el proveedor Google |
-| `CORS_ALLOWED_ORIGINS` | Orígenes permitidos para peticiones cross-origin |
-| `ENVIRONMENT` | Entorno de ejecución (`development` / `production`) |
+| `CORS_ALLOWED_ORIGINS` | Orígenes permitidos para peticiones cross-origin; obligatorio en producción y solo orígenes HTTPS exactos separados por comas |
+| `ENVIRONMENT` | Entorno de ejecución (`development` / `production`); cualquier otro valor impide arrancar |
 
-Los valores por defecto de desarrollo se cargan desde un fichero `.env` no versionado. La aplicación no debe arrancar si falta una variable obligatoria.
+Los valores por defecto de desarrollo se cargan desde un fichero `.env` no versionado. La aplicación no debe arrancar si falta una variable obligatoria. En producción también falla si `SECRET_KEY` tiene menos de 32 caracteres, si no hay orígenes CORS, si se repiten, si incluyen `*` o si no son orígenes HTTPS exactos (sin ruta, query ni fragmento).
 
 ---
 
@@ -219,8 +219,11 @@ Esta forma **no** es la que FastAPI produce por defecto — sin intervención de
 | `409` | Conflicto de unicidad o de estado (por ejemplo, email ya registrado) |
 | `422` | Error de validación de esquema de entrada |
 | `500` | Error no controlado |
+| `503` | Dependencia imprescindible no disponible temporalmente |
 
 Un error de autorización nunca se enmascara como `404`.
+
+Cuando PostgreSQL detecta una restricción antes que la comprobación de aplicación —por ejemplo, por una carrera entre dos peticiones— los SQLSTATE conocidos de unicidad, clave foránea, `CHECK`/trigger y exclusión se traducen también a `409` con este mismo contrato. No se expone el texto del motor ni el nombre de la restricción; un error de base de datos desconocido sigue siendo `500` y se registra para investigarlo.
 
 #### Cómo se lanzan
 
@@ -240,15 +243,17 @@ Un `500` nunca expone la excepción original. El traceback completo va al log de
 
 ### 5.7 CORS
 
-Frontend y backend viven en dominios distintos — no es un despliegue de mismo dominio con rutas `/api`, sino dos orígenes separados de verdad. Como la sesión viaja en cookies (ver §7.1), esto son peticiones cross-site, no solo cross-origin, y eso condiciona toda la configuración:
+Frontend y backend viven en orígenes distintos — no es un despliegue de mismo origen con rutas `/api` — pero en producción son el mismo **site**: `https://finanzapp.entramaes.com` y `https://api.finanzapp.entramaes.com` comparten dominio registrable y esquema HTTPS. La distinción importa: CORS sigue siendo necesario por ser cross-origin, mientras que `SameSite=Lax` sí permite las cookies entre ambos.
 
-- Los orígenes permitidos se configuran mediante `CORS_ALLOWED_ORIGINS`, como lista explícita. No se permite el origen comodín (`*`): un navegador lo rechaza en cuanto la petición lleva credenciales (cookies), así que con `*` las peticiones cross-site fallarían igualmente.
+- Los orígenes permitidos se configuran mediante `CORS_ALLOWED_ORIGINS`, como lista explícita. En producción deben ser HTTPS, sin ruta, y no se permite el comodín (`*`).
 - El middleware de CORS se registra con `allow_credentials=True`, imprescindible para que el navegador adjunte cookies en peticiones entre orígenes.
 - El cliente debe emitir sus peticiones con `credentials: "include"` (o el equivalente de su librería HTTP); sin eso, el navegador no manda la cookie aunque el origen esté permitido.
+- Toda mutación (`POST`, `PUT`, `PATCH`, `DELETE`) que lleve `access_token` o `refresh_token` exige además una cabecera `Origin` exactamente incluida en `CORS_ALLOWED_ORIGINS`. Si falta o no coincide responde `403` con el contrato de error común. Es la defensa CSRF elegida para cookies httpOnly; registro y login no llevan una cookie previa y no quedan bloqueados por ella.
+- `GET`, `HEAD` y `OPTIONS` son siempre operaciones sin efectos. Una ruta nueva que cambie estado debe usar uno de los métodos mutantes anteriores; de lo contrario evitaría la validación de origen.
 
 ### 5.8 Endpoint de estado
 
-`GET /health` expone el estado de disponibilidad del servicio, sin autenticación ni lógica de negocio, para verificación de despliegue.
+`GET /health` expone la **vitalidad** del proceso, sin autenticación ni consulta a dependencias: sirve para saber si la API puede responder. `GET /ready` comprueba además `SELECT 1` contra PostgreSQL y responde `503` con el contrato común si la base no está disponible; es el endpoint adecuado para retirar una instancia del balanceador hasta que esté preparada. Ninguno revela credenciales ni detalles del motor.
 
 ---
 
@@ -284,7 +289,7 @@ Las invariantes de negocio no expresables mediante claves foráneas simples (jer
 
 Autenticación basada en JSON Web Tokens, con soporte de múltiples proveedores de identidad desde el diseño inicial: credenciales locales (hash mediante bcrypt) y OAuth 2.0 (Google). La identidad (`users`) y el método de autenticación (`auth_providers`) están modelados por separado, permitiendo múltiples métodos por usuario.
 
-La renovación de sesión se gestiona mediante refresh tokens; se persiste su hash, nunca el valor en claro, permitiendo revocación selectiva.
+La renovación de sesión se gestiona mediante refresh tokens; se persiste su hash, nunca el valor en claro, permitiendo revocación selectiva. Cada rotación consume la sesión mediante un `UPDATE` condicionado por hash, revocación y expiración, de modo que dos solicitudes concurrentes no pueden emitir dos sesiones desde el mismo token.
 
 Ningún token viaja en el cuerpo de una respuesta ni en la cabecera `Authorization`: los endpoints que autentican (`register`, `login`, `google`, `refresh`) los entregan como cookies `httpOnly` — inaccesibles desde JavaScript, lo que cierra la vía más común de robo de tokens vía XSS. Duración, nombres, `Path` y el resto de atributos de cada cookie están documentados en `docs/domains/auth.md` §5, junto con la configuración de CORS que hace falta porque frontend y backend son dominios distintos (ver §5.7).
 
@@ -295,6 +300,10 @@ Resuelto mediante inyección de dependencias encadenadas:
 - **`get_current_user`** — valida el JWT y resuelve el usuario autenticado. Lo lee de la cookie `access_token`, no de una cabecera `Authorization`. Dependencia base de la que dependen las siguientes.
 - **`verify_group_membership`** — para endpoints donde el identificador de grupo forma parte de la ruta.
 - **`verify_account_access`** — para endpoints que operan sobre un recurso por su propio identificador, resolviendo la pertenencia al grupo antes de autorizar.
+
+Las mutaciones de membresías que puedan retirar o degradar un `owner` (`PATCH` y `DELETE` de miembros) vuelven a leer todas las pertenencias con `SELECT ... FOR UPDATE`, ordenadas por identificador, dentro de la transacción de la petición. La comprobación de que queda al menos un `owner` y el cambio se ejecutan así sobre la misma fotografía bloqueada, evitando que dos peticiones concurrentes dejen el grupo sin propietario. Un objetivo que no sea miembro se trata como `404`; la autorización del solicitante no cambia.
+
+Las relaciones que no pueden expresarse con una clave foránea simple se mantienen también en PostgreSQL: los triggers de categorías y los de transferencias/planes de transferencia verifican que las cuentas y categorías relacionadas estén dentro del mismo grupo. La validación de aplicación se conserva para traducir el caso esperado a `409`, pero no es la única barrera de integridad.
 
 ### 7.3 Separación entre identidad y autenticación
 
@@ -365,13 +374,28 @@ Sobre índices: no se añade ninguno de forma preventiva. La sección 9 fija un 
 
 - **Volumen de uso**: uso personal o de grupo reducido, no tráfico concurrente de escala SaaS. Justifica la elección de paginación por desplazamiento sobre paginación por cursor, de una única instancia de base de datos sin réplicas de lectura, y de calcular los agregados de la sección 8.3 en caliente en vez de precalcularlos.
 - **Disponibilidad**: sin objetivo de alta disponibilidad definido para el alcance actual. Es lo que justifica que el proceso diario de `payment_plans` sea un cron del contenedor y no un planificador embebido en el proceso de FastAPI.
-- **Observabilidad**: los logs se emiten a `stdout` en JSON cuando `ENVIRONMENT=production` y en texto coloreado en desarrollo (`app/logging_config.py`). En producción los recoge Grafana Alloy y los envía a Loki sin parseo, de ahí que el formato sea JSON: permite filtrar por campo en vez de buscar texto suelto. No hay trazabilidad distribuida ni correlación de peticiones.
+- **Observabilidad**: los logs se emiten a `stdout` en JSON cuando `ENVIRONMENT=production` y en texto coloreado en desarrollo (`app/logging_config.py`). En producción los recoge Grafana Alloy y los envía a Loki sin parseo, de ahí que el formato sea JSON: permite filtrar por campo en vez de buscar texto suelto. Los fallos de materialización de planes incluyen `event` y `payment_plan_id`, de modo que una regla de alertas puede distinguirlos de un error genérico. No hay trazabilidad distribuida ni correlación de peticiones.
 
 ---
 
 ## 10. Estrategia de pruebas
 
-Pruebas automatizadas mediante un framework de testing con soporte de cliente HTTP para pruebas de integración de endpoints. La separación `service`/`repository` permite pruebas unitarias de la lógica de negocio, sustituyendo el repositorio por un doble de prueba, sin infraestructura de persistencia real.
+La separación `service`/`repository` permite pruebas unitarias rápidas de la
+lógica de negocio, sustituyendo el repositorio por un doble de prueba, sin
+infraestructura de persistencia real.
+
+Las pruebas marcadas como `integration` ejercitan la aplicación con un
+PostgreSQL real. Antes de la primera prueba aplican `alembic upgrade head` y
+vacían todas las tablas entre casos mediante `TRUNCATE ... CASCADE`. El
+entorno se activa solo al definir `TEST_DATABASE_URL`; esta URL debe apuntar a
+una base cuyo nombre termine en `_test` y coincidir con `DATABASE_URL`. Es una
+barrera deliberada contra borrar datos de desarrollo por error.
+
+El CI crea `finanzapp_test` como servicio efímero de PostgreSQL y ejecuta
+ambas suites. Por ello, una migración nueva debe tener al menos una prueba de
+integración cuando su corrección dependa de PostgreSQL (triggers,
+restricciones, índices, concurrencia o SQL específico), además de las
+pruebas unitarias de la regla de negocio.
 
 ---
 

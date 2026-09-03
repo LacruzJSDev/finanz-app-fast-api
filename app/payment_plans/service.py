@@ -85,6 +85,7 @@ class PaymentPlanService:
         account_id: uuid.UUID,
         payment_plan_id: uuid.UUID,
         command: UpdatePaymentPlanCommand,
+        user_id: uuid.UUID,
     ) -> PaymentPlanRead:
         fields = (
             command.amount,
@@ -168,7 +169,18 @@ class PaymentPlanService:
         ):
             raise ConflictError("end_date no puede ser anterior a next_due_date")
 
+        # El día ancla es interno: cambiar explícitamente la fecha cambia la
+        # regla de calendario; cambiar solo la periodicidad conserva el ancla.
+        if effective_is_recurring:
+            command.recurrence_anchor_day = (
+                effective_next_due_date.day
+                if command.next_due_date is not UNSET
+                else payment_plan.recurrence_anchor_day or effective_next_due_date.day
+            )
+        else:
+            command.recurrence_anchor_day = None
+
         updated_payment_plan = self.payment_plan_repo.update_payment_plan(
-            payment_plan_id, command
+            payment_plan_id, command, user_id
         )
         return PaymentPlanRead.model_validate(updated_payment_plan)

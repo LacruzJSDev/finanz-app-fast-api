@@ -24,6 +24,10 @@ from app.users.schemas import UserRead
 _INVALID_CREDENTIALS_MESSAGE = "Email o contraseña incorrectos"
 _NO_SESSION_MESSAGE = "Session no encontrada"
 _NO_USER_MESSAGE = "Usuario no encontrado"
+# Hash bcrypt válido de una contraseña sin significado. Ejecutar la misma
+# comprobación cuando falta el usuario o su proveedor local evita que el
+# tiempo de respuesta revele si un email tiene credenciales locales.
+_DUMMY_PASSWORD_HASH = "$2b$12$z4uhjufELwsWCqdQWH6BgesFQVHJtMJxgL9vHkx3Nh22tt0ZJbXry"
 
 
 @dataclass
@@ -89,6 +93,7 @@ class AuthService:
         """
         local_provider = self.auth_repo.get_local_provider(user.id)
         if not local_provider or not local_provider.password_hash:
+            verify_password(password, _DUMMY_PASSWORD_HASH)
             raise UnauthorizedError(_INVALID_CREDENTIALS_MESSAGE)
 
         if not verify_password(password, local_provider.password_hash):
@@ -97,6 +102,7 @@ class AuthService:
     def login(self, email: str, password: str) -> AuthResult:
         user = self.user_repo.get_user_by_email(email)
         if not user:
+            verify_password(password, _DUMMY_PASSWORD_HASH)
             raise UnauthorizedError(_INVALID_CREDENTIALS_MESSAGE)
 
         self._verify_local_password(user, password)
@@ -141,7 +147,13 @@ class AuthService:
         if not user:
             raise UnauthorizedError(_NO_USER_MESSAGE)
 
-        self.auth_repo.revoke_session_by_refresh_token_hash(refresh_token_hash)
+        consumed_session = self.auth_repo.consume_active_session_by_refresh_token_hash(
+            refresh_token_hash, datetime.now(timezone.utc)
+        )
+        if consumed_session is None:
+            # Otra petición simultánea puede haber consumido el refresh token
+            # entre la lectura anterior y este UPDATE condicionado.
+            raise UnauthorizedError(_NO_SESSION_MESSAGE)
 
         return self._issue_tokens(user)
 

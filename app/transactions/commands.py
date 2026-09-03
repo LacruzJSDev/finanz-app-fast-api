@@ -17,6 +17,7 @@ class CreateTransactionCommand:
     date: date_
     notes: str | None
     payment_plan_id: uuid.UUID | None = None
+    payment_plan_occurrence_id: uuid.UUID | None = None
 
 
 @dataclass
@@ -30,6 +31,7 @@ class TransactionRowCommand:
     date: date_
     notes: str | None
     payment_plan_id: uuid.UUID | None = None
+    payment_plan_occurrence_id: uuid.UUID | None = None
 
 
 @dataclass

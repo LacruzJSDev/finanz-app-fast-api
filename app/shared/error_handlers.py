@@ -13,10 +13,19 @@ from app.shared.schemas import ErrorBody, ErrorDetail, ErrorResponse
 
 logger = logging.getLogger(__name__)
 
-# SQLSTATE de violación de una restricción EXCLUDE. Lo lanza
-# excl_budget_overlap cuando dos periodos de la misma categoría se pisan
-# (budgets.md §5); sin traducir saldría como 500.
-EXCLUSION_VIOLATION = "23P01"
+# SQLSTATE de restricciones que pueden aparecer bajo una carrera o cuando una
+# garantía de PostgreSQL alcanza una escritura. La aplicación intenta
+# detectarlas antes para dar mensajes concretos, pero nunca debe convertir una
+# condición de integridad conocida en un 500 si la base de datos gana la
+# carrera.
+CONFLICT_SQLSTATES = frozenset(
+    {
+        "23503",  # foreign_key_violation
+        "23505",  # unique_violation
+        "23514",  # check_violation (incluye triggers de grupo)
+        "23P01",  # exclusion_violation (presupuestos solapados)
+    }
+)
 
 # Códigos para los errores que no genera la aplicación, sino el framework:
 # rutas inexistentes, métodos no permitidos, cuerpos malformados.
@@ -31,6 +40,7 @@ _CODES_BY_STATUS = {
     422: "validation_error",
     500: "internal_error",
     501: "not_implemented",
+    503: "service_unavailable",
 }
 
 
@@ -82,18 +92,21 @@ async def http_exception_handler(_: Request, exc: Exception) -> JSONResponse:
 async def integrity_error_handler(_: Request, exc: Exception) -> JSONResponse:
     """Violación de una restricción de integridad de la base de datos.
 
-    Solo traduce la de EXCLUDE. Cualquier otra se vuelve a lanzar para que
-    siga exactamente el camino de antes: unhandled_exception_handler, que la
-    registra en el log y responde 500.
+    Traduce las restricciones de negocio conocidas a un 409 genérico. Cualquier
+    otro error de base de datos se vuelve a lanzar para que el manejador no
+    controlado lo registre y responda 500 sin filtrar detalles internos.
     """
     assert isinstance(exc, IntegrityError)
     # psycopg2 expone el SQLSTATE como pgcode; psycopg3 lo llama sqlstate.
     sqlstate = getattr(exc.orig, "pgcode", None) or getattr(exc.orig, "sqlstate", None)
-    if sqlstate != EXCLUSION_VIOLATION:
+    if sqlstate not in CONFLICT_SQLSTATES:
         raise exc
     return _error_response(
         409,
-        ErrorBody(code="conflict", message="El periodo solapa con otro ya existente"),
+        ErrorBody(
+            code="conflict",
+            message="La operación entra en conflicto con el estado actual",
+        ),
     )
 
 

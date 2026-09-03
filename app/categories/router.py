@@ -81,6 +81,7 @@ def get_category(
 def update_category(
     payload: UpdateCategoryRequest,
     service: CategoryServiceDep,
+    user: CurrentUser,
     category_id: uuid.UUID,
     category: RequireCategoryOwnerOrAdmin,
 ) -> CategoryRead:
@@ -92,4 +93,4 @@ def update_category(
         icon=payload.icon if "icon" in fields_set else UNSET,
         is_active=payload.is_active if payload.is_active is not None else UNSET,
     )
-    return service.update_category(category_id, update_category_command)
+    return service.update_category(category_id, update_category_command, user.id)

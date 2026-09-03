@@ -117,6 +117,7 @@ class TransactionService:
         account_id: uuid.UUID,
         transaction_id: uuid.UUID,
         command: UpdateTransactionCommand,
+        user_id: uuid.UUID,
     ) -> TransactionRead:
         fields = (
             command.amount,
@@ -166,12 +167,15 @@ class TransactionService:
             command.amount = sign * magnitude
 
         updated_transaction = self.transaction_repo.update_transaction(
-            transaction_id, command
+            transaction_id, command, user_id
         )
         return TransactionRead.model_validate(updated_transaction)
 
     def delete_transaction(
-        self, account_id: uuid.UUID, transaction_id: uuid.UUID
+        self,
+        account_id: uuid.UUID,
+        transaction_id: uuid.UUID,
+        user_id: uuid.UUID,
     ) -> None:
         transaction = self.transaction_repo.get_transaction_by_id(transaction_id)
         if (
@@ -180,7 +184,7 @@ class TransactionService:
             or transaction.deleted_at is not None
         ):
             raise NotFoundError("La transacción no existe")
-        self.transaction_repo.delete_transaction(transaction_id)
+        self.transaction_repo.delete_transaction(transaction_id, user_id)
 
     def _check_category(
         self, category_id: uuid.UUID | None, group_id: uuid.UUID
@@ -214,6 +218,7 @@ class TransactionService:
             date=command.date,
             notes=command.notes,
             payment_plan_id=command.payment_plan_id,
+            payment_plan_occurrence_id=command.payment_plan_occurrence_id,
         )
         transaction = self.transaction_repo.create_transaction(user_id, row)
         return TransactionRead.model_validate(transaction)
@@ -247,6 +252,7 @@ class TransactionService:
             date=command.date,
             notes=command.notes,
             payment_plan_id=command.payment_plan_id,
+            payment_plan_occurrence_id=command.payment_plan_occurrence_id,
         )
         destination_row = TransactionRowCommand(
             account_id=to_account_id,
@@ -258,6 +264,7 @@ class TransactionService:
             date=command.date,
             notes=command.notes,
             payment_plan_id=command.payment_plan_id,
+            payment_plan_occurrence_id=command.payment_plan_occurrence_id,
         )
         origin_transaction = self.transaction_repo.create_transaction(
             user_id, origin_row

@@ -61,3 +61,11 @@ class ConflictError(AppError):
     status_code = 409
     code = "conflict"
     message = "Conflicto con el estado actual del recurso"
+
+
+class ServiceUnavailableError(AppError):
+    """Dependencia temporalmente no disponible; el cliente puede reintentar."""
+
+    status_code = 503
+    code = "service_unavailable"
+    message = "Servicio temporalmente no disponible"

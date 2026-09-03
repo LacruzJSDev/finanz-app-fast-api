@@ -45,9 +45,22 @@ def _set_auth_cookies(response: Response, result: AuthResult) -> None:
     )
 
 
-def _delete_auth_cookies(response: Response):
-    response.delete_cookie(ACCESS_TOKEN_COOKIE)
-    response.delete_cookie(REFRESH_TOKEN_COOKIE, path="/api/v1/auth")
+def _delete_auth_cookies(response: Response) -> None:
+    """Borra las cookies con el mismo ámbito que se usó al crearlas."""
+    response.delete_cookie(
+        ACCESS_TOKEN_COOKIE,
+        path="/",
+        httponly=True,
+        secure=settings.cookie_secure,
+        samesite=settings.cookie_samesite,
+    )
+    response.delete_cookie(
+        REFRESH_TOKEN_COOKIE,
+        path="/api/v1/auth",
+        httponly=True,
+        secure=settings.cookie_secure,
+        samesite=settings.cookie_samesite,
+    )
 
 
 @router.post("/login", responses=responses(UNAUTHORIZED))

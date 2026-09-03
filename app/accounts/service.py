@@ -66,7 +66,10 @@ class AccountService:
         return account_read
 
     def update_account(
-        self, account_id: uuid.UUID, account: UpdateAccountCommand
+        self,
+        account_id: uuid.UUID,
+        account: UpdateAccountCommand,
+        user_id: uuid.UUID,
     ) -> AccountRead:
         fields = (
             account.name,
@@ -78,6 +81,6 @@ class AccountService:
         if all(field is UNSET for field in fields):
             raise BadRequestError("Debes incluir al menos un campo para actualizar")
 
-        updated_account = self.account_repo.update_account(account_id, account)
+        updated_account = self.account_repo.update_account(account_id, account, user_id)
         account_read = AccountRead.model_validate(updated_account)
         return account_read

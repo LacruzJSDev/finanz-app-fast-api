@@ -24,7 +24,7 @@ Este dominio depende de `users` (crea y consulta filas de `User`, nunca al revé
 
 Registro con credenciales locales.
 
-- **Entrada**: `email`, `password`, `name`.
+- **Entrada**: `email`, `password`, `name`. La contraseña nueva tiene entre 8 caracteres y 72 bytes UTF-8; el límite se expresa en bytes porque bcrypt no puede hashear una entrada mayor.
 - **Efecto**: crea `User` y una fila `auth_providers` (`provider = 'local'`, `password_hash` con hash de la contraseña).
 - **Salida**: el `User` creado, en el cuerpo. `access_token` y `refresh_token` se entregan como cookies httpOnly, no como campos del JSON (ver sección 5) — el registro autentica inmediatamente, sin exigir un login posterior.
 - **Errores**: `409` si el email ya existe.
@@ -61,7 +61,7 @@ Inicio de sesión o registro mediante Google.
 Renovación del token de acceso.
 
 - **Entrada**: ninguna en el cuerpo — el `refresh_token` se lee de su cookie (ver sección 5), no se manda explícitamente.
-- **Efecto**: valida el hash contra `sessions.refresh_token_hash`, comprueba que la sesión no esté revocada ni expirada. Emite un nuevo `access_token`. El `refresh_token` se rota (se invalida el usado y se emite uno nuevo), para reducir la ventana de uso de un token filtrado.
+- **Efecto**: valida el hash contra `sessions.refresh_token_hash`, comprueba que la sesión no esté revocada ni expirada y la consume mediante una única actualización condicional. Emite un nuevo `access_token`. El `refresh_token` se rota (se invalida el usado y se emite uno nuevo), para reducir la ventana de uso de un token filtrado. Si dos renovaciones llegan a la vez, solo una consume la sesión; la otra recibe `401`.
 - **Salida**: el `User`, en el cuerpo — igual que `login`/`register`: el cliente lo guarda en memoria y lo necesita ahí sin tener que pedirlo aparte. `access_token` y `refresh_token` como cookies httpOnly (ver sección 5).
 - **Errores**: `401` si el refresh token no es válido, está revocado o expirado.
 
@@ -77,7 +77,7 @@ Cierre de sesión.
 
 Cambio de contraseña, requiere autenticación.
 
-- **Entrada**: `current_password`, `new_password`.
+- **Entrada**: `current_password`, `new_password`. La contraseña nueva tiene entre 8 caracteres y 72 bytes UTF-8.
 - **Efecto**: valida la contraseña actual contra la fila `local` existente, actualiza `password_hash`.
 - **Errores**: `401` tanto si `current_password` no coincide como si el usuario no tiene ningún método `local` configurado (por ejemplo, se registró solo con Google) — mismo código y mismo mensaje genérico en los dos casos, por la misma razón que en `login`: no confirmar desde la respuesta cómo se registró la cuenta. Para una cuenta sin método `local` este endpoint no aplica; haría falta un flujo de "añadir contraseña", fuera de alcance de v1 (ver sección 7).
 
@@ -87,7 +87,7 @@ Ningún endpoint devuelve `access_token` ni `refresh_token` como campo del cuerp
 
 La razón de no ponerlos en el cuerpo: un token en el JSON de la respuesta solo puede guardarlo el cliente en algún sitio accesible por JavaScript (`localStorage`, una variable en memoria...), y cualquier XSS que consiga ejecutar código en la página puede leerlo de ahí y robarlo. Una cookie `httpOnly` no la puede leer JavaScript bajo ningún concepto — el navegador la adjunta solo a las peticiones, sin que el código de la aplicación llegue a tocar el valor.
 
-Frontend y backend viven en dominios distintos (no es un caso de mismo dominio con rutas `/api`), así que esto es una cookie **cross-site** de verdad, con las implicaciones que conlleva:
+Frontend y backend viven en orígenes distintos (no es un caso de mismo origen con rutas `/api`), pero en producción comparten site: `finanzapp.entramaes.com` y `api.finanzapp.entramaes.com` usan HTTPS bajo el mismo dominio registrable. Por eso CORS es necesario, pero no hace falta relajar `SameSite` a `None`.
 
 | Cookie | Path | Contiene | Motivo del `Path` |
 |---|---|---|---|
@@ -97,20 +97,21 @@ Frontend y backend viven en dominios distintos (no es un caso de mismo dominio c
 Atributos comunes a las dos:
 
 - **`HttpOnly`** — siempre. Inaccesible desde JavaScript.
-- **`Secure`** — solo en producción. Obligatorio en cuanto `SameSite=None`; en desarrollo, con todo bajo `localhost`, no hace falta.
-- **`SameSite`** — `None` en producción (dominios registrables distintos, cookie cross-site real); `Lax` en desarrollo (frontend y backend comparten `localhost`, aunque en puertos distintos, y `Lax` ya basta para peticiones `fetch`/XHR entre ellos).
+- **`Secure`** — solo en producción: una cookie de sesión no puede viajar por HTTP.
+- **`SameSite`** — `Lax` en todos los entornos. Entre los dos subdominios HTTPS de producción, igual que entre puertos de `localhost` en desarrollo, sigue siendo una petición same-site y `Lax` permite `fetch`/XHR con credenciales.
 - **Expiración** — igual que la del JWT que contienen: `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` / `JWT_REFRESH_TOKEN_EXPIRE_DAYS` (ver sección 6).
 
-Con credenciales viajando en cookies cross-site, el CORS del backend exige el origen exacto del frontend en `CORS_ALLOWED_ORIGINS` (nunca `*`) y `allow_credentials=True`; el cliente, por su parte, tiene que mandar sus peticiones con `credentials: "include"` (o el equivalente de su librería HTTP) para que el navegador adjunte las cookies. Ver `ARCHITECTURE.md` §5.7.
+El CORS del backend exige el origen exacto del frontend en `CORS_ALLOWED_ORIGINS` (nunca `*`) y `allow_credentials=True`; el cliente manda las peticiones con `credentials: "include"`. Además, una mutación que ya incluya `access_token` o `refresh_token` debe llevar una cabecera `Origin` incluida en esa lista; si no, responde `403`. Esto evita CSRF sin exponer un token a JavaScript. Ver `ARCHITECTURE.md` §5.7.
 
 ## 6. Reglas de negocio
 
 - Un usuario puede tener como máximo un método `local` (impuesto por índice único parcial en el esquema) y múltiples métodos externos, uno por proveedor distinto.
 - La vinculación automática por coincidencia de email (caso de uso 4) se basa en que `users.email` es único: si el email de la cuenta de Google ya existe como `User`, no puede crearse un `User` nuevo con ese email, así que la única operación coherente es vincular.
 - El email se normaliza (`strip` + minúsculas) en el propio esquema de entrada, antes de tocar la base de datos — así el mismo email con distinto formato de mayúsculas se reconoce como el mismo usuario tanto al registrarse como al iniciar sesión.
+- Un login contra un email inexistente, o una cuenta sin proveedor `local`, ejecuta igualmente una comprobación bcrypt contra un hash ficticio antes de devolver el mismo `401`. Evita que la duración de la respuesta revele si el email tiene credenciales locales.
 - El payload del JWT de acceso contiene el identificador del usuario y su expiración; no contiene datos sensibles ni el rol/pertenencia a grupos (eso se resuelve en cada petición contra la base de datos, no se cachea en el token).
 - Duración por defecto: token de acceso 30 minutos; refresh token 7 días. Configurables vía `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` / `JWT_REFRESH_TOKEN_EXPIRE_DAYS` (ver `ARCHITECTURE.md`).
-- El logout es por sesión (dispositivo), no revoca el resto de sesiones activas del usuario.
+- El logout es por sesión (dispositivo), no revoca el resto de sesiones activas del usuario. El JWT de acceso ya emitido tampoco se puede revocar de forma selectiva: sigue siendo válido hasta sus 30 minutos de expiración. Es el coste deliberado de mantener los access tokens sin estado; el refresh de esa sesión queda invalidado inmediatamente.
 
 ## 7. Fuera de alcance (v1)
 
@@ -127,7 +128,9 @@ Con credenciales viajando en cookies cross-site, el CORS del backend exige el or
 - Un login con contraseña incorrecta y un login con email inexistente devuelven la misma respuesta `401`, indistinguible entre sí.
 - Ninguna respuesta de `register`, `login`, `google` o `refresh` incluye `access_token` ni `refresh_token` en el cuerpo JSON; ambos llegan exclusivamente como cookies `httpOnly`.
 - Tras un `refresh`, el refresh token anterior deja de ser válido para una nueva renovación.
+- Dos `refresh` concurrentes con el mismo token producen como máximo una rotación correcta; el otro devuelve `401` y no crea una sesión adicional.
 - Un `refresh` con la cookie `refresh_token` de una sesión ya expirada (`expires_at` en el pasado) devuelve `401`, sin emitir tokens nuevos.
 - Tras un `logout`, el refresh token usado deja de ser válido para `refresh`, pero el resto de sesiones del usuario en otros dispositivos siguen activas.
 - Un login con Google usando un email ya registrado por `local` no crea un segundo `User`; ambos métodos quedan vinculados al mismo `User`.
 - Un `change_password` con la contraseña actual incorrecta y un `change_password` sobre una cuenta sin método `local` (por ejemplo, registrada solo con Google) devuelven la misma respuesta `401`, indistinguible entre sí.
+- Un `logout`, `refresh` o `change_password` que reciba una cookie de autenticación sin un `Origin` permitido devuelve `403` con el contrato de error común.
