@@ -5,6 +5,7 @@ SHELL=/bin/sh
 # El propio job hace ". /etc/environment" antes de arrancar: cron no hereda
 # las variables de entorno del contenedor (DATABASE_URL, SECRET_KEY...),
 # así que sin eso Settings() fallaría al arrancar en cada ejecución. cron
-# arranca como root (ver docker-compose.yml) para poder ejecutar la línea
-# como appuser, no como root.
-0 2 * * * appuser . /etc/environment; cd /code && python -m app.payment_plans.run_due >> /proc/1/fd/1 2>&1
+# arranca como root (ver docker-compose.yml). Abrir /proc/1/fd/1 también
+# requiere root, así que el wrapper se ejecuta como root y delega Python en
+# appuser: de otro modo la redirección falla antes de llegar a run_due.py.
+0 2 * * * root . /etc/environment; cd /code && su -s /bin/sh appuser -c 'exec python -m app.payment_plans.run_due' >> /proc/1/fd/1 2>&1
